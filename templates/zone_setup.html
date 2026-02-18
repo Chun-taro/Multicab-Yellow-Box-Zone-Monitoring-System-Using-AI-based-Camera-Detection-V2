@@ -1,0 +1,144 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="header">
+    <h1 class="page-title">Zone Configuration</h1>
+    <div class="status-badge" style="background: var(--primary-color);">
+        <i class="fas fa-edit"></i>
+        <span>Setup Mode</span>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span><i class="fas fa-draw-polygon"></i> Draw Yellow Box Zone</span>
+        <div class="header-controls">
+            <span id="point-count" style="margin-right: 1rem; font-size: 0.9rem;">Points: 0/4</span>
+            <button class="btn-secondary" onclick="resetZone()">Reset</button>
+            <button class="btn-primary" onclick="saveZone()">Save Zone</button>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 1rem; background: #1a1a1a; display: flex; justify-content: center;">
+        <div class="video-container" style="position: relative; display: inline-block;">
+            <img id="video-feed" src="{{ url_for('dashboard.video_feed') }}" alt="Live Video Feed" 
+                 style="display: block; max-width: 100%; height: auto; cursor: crosshair;">
+            <canvas id="zone-canvas" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
+        </div>
+    </div>
+    <div class="card-footer" style="padding: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+        <p><i class="fas fa-info-circle"></i> Instructions: Click 4 points on the video to define the yellow box zone. The points will be connected in order. Click "Save Zone" to apply.</p>
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('video-feed');
+    const canvas = document.getElementById('zone-canvas');
+    const ctx = canvas.getContext('2d');
+    let points = [];
+    
+    // Resize canvas to match video
+    function resizeCanvas() {
+        canvas.width = video.clientWidth;
+        canvas.height = video.clientHeight;
+        redraw();
+    }
+
+    // Handle clicks
+    video.addEventListener('click', function(event) {
+        if (points.length >= 4) return;
+
+        const rect = video.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        
+        points.push({x, y});
+        redraw();
+        updateStatus();
+    });
+
+    function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.strokeStyle = '#ffff00';
+        ctx.lineWidth = 3;
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.3)';
+
+        // Draw points
+        points.forEach(p => {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 5, 0, 2 * Math.PI);
+            ctx.fillStyle = '#ffff00';
+            ctx.fill();
+        });
+
+        // Draw lines
+        if (points.length > 0) {
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
+            }
+            if (points.length === 4) {
+                ctx.closePath();
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+        }
+    }
+
+    function resetZone() {
+        points = [];
+        redraw();
+        updateStatus();
+    }
+
+    function updateStatus() {
+        document.getElementById('point-count').innerText = `Points: ${points.length}/4`;
+    }
+
+    function saveZone() {
+        if (points.length !== 4) {
+            alert("Please draw exactly 4 points to define the zone.");
+            return;
+        }
+
+        // Convert coordinates to natural image resolution
+        const scaleX = video.naturalWidth / video.clientWidth;
+        const scaleY = video.naturalHeight / video.clientHeight;
+
+        const realPoints = points.map(p => [
+            Math.round(p.x * scaleX),
+            Math.round(p.y * scaleY)
+        ]);
+
+        fetch('/api/zone', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ zone: realPoints })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert("Zone updated successfully!");
+                window.location.href = "{{ url_for('dashboard.dashboard') }}";
+            } else {
+                alert("Error: " + (data.error || "Unknown error"));
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            alert("Failed to save zone.");
+        });
+    }
+
+    // Initial setup
+    window.addEventListener('resize', resizeCanvas);
+    video.onload = resizeCanvas;
+    // Just in case onload doesn't fire if cached
+    if (video.complete) resizeCanvas();
+
+</script>
+{% endblock %}

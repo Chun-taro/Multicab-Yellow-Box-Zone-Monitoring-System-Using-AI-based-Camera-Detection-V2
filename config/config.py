@@ -20,14 +20,48 @@ class Config:
     # Ultralytics will download it automatically on the first run.
     MODEL_PATH = 'yolov8s.pt'
 
-    # Zone settings (example coordinates for yellow box zone)
-    # For config/config.py:
-    YELLOW_BOX_ZONE = [
-        (865, 587),
-        (1057, 617),
-        (1152, 247),
-        (1074, 230),
-    ]
+    # Zone settings
+    ZONE_CONFIG_PATH = os.path.join(BASE_DIR, 'zone_config.json')
+
+    def load_zone_config(self):
+        import json
+        try:
+            if os.path.exists(self.ZONE_CONFIG_PATH):
+                with open(self.ZONE_CONFIG_PATH, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading zone config: {e}")
+        
+        # Default coordinates if file doesn't exist or fails
+        return [
+            (865, 587),
+            (1057, 617),
+            (1152, 247),
+            (1074, 230),
+        ]
+
+    def save_zone_config(self, coordinates):
+        import json
+        try:
+            # Ensure coordinates are integers
+            cleaned_coords = [[int(x), int(y)] for x, y in coordinates]
+            with open(self.ZONE_CONFIG_PATH, 'w') as f:
+                json.dump(cleaned_coords, f)
+            self.YELLOW_BOX_ZONE = cleaned_coords
+            return True
+        except Exception as e:
+            print(f"Error saving zone config: {e}")
+            return False
+
+    @property
+    def YELLOW_BOX_ZONE(self):
+        if not hasattr(self, '_yellow_box_zone'):
+            self._yellow_box_zone = self.load_zone_config()
+        return self._yellow_box_zone
+
+    @YELLOW_BOX_ZONE.setter
+    def YELLOW_BOX_ZONE(self, value):
+        self._yellow_box_zone = value
 
     # Time limits
     STOP_TIME_LIMIT = 15  # seconds vehicle can stop in zone before violation

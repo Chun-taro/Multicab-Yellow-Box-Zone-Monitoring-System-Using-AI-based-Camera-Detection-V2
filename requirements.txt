@@ -20,3 +20,4 @@ PyYAML
 tqdm
 psutil
 ipython
+pywebview

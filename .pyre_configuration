@@ -1,0 +1,19 @@
+{
+  "source_directories": [
+    "."
+  ],
+  "search_path": [
+    ".",
+    "app_utils",
+    "routes",
+    "config",
+    "database",
+    "ai_model",
+    "c:/Users/micha/AppData/Local/Programs/Python/Python311/Lib/site-packages",
+    "c:/Users/micha/AppData/Local/Programs/Python/Python311"
+  ],
+  "exclude": [
+    ".venv",
+    "__pycache__"
+  ]
+}

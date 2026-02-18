@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify
 from routes.dashboard_routes import dashboard_bp
 from routes.api_routes import api_bp
-from utils.helpers import setup_logging
+from app_utils.helpers import setup_logging
 import threading
 from config.config import config
 

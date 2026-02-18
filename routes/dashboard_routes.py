@@ -1,6 +1,12 @@
+if __name__ == "__main__":
+    print("Error: This file is part of the Flask application and cannot be run directly.")
+    print("Please run 'python app.py' or 'python run_desktop.py' from the project root instead.")
+    import sys
+    sys.exit(1)
+
 from flask import Blueprint, render_template, Response, request, redirect, url_for, jsonify
 from database.database import Database
-from utils.camera import CameraHandler
+from app_utils.camera import CameraHandler
 from config.config import config
 import cv2
 import numpy as np
@@ -14,7 +20,10 @@ import warnings
 import csv
 import re
 import threading
-import requests
+import itertools
+from typing import List, Dict, Any
+
+from typing import List, Dict, Any
 
 dashboard_bp = Blueprint('dashboard', __name__)
 db = Database()
@@ -39,26 +48,30 @@ def is_person_inside_bbox(person_center, bbox):
 
 def is_person_near_vehicle(person_center, vehicle_bbox, distance_threshold=100):
     """
-    Check if person is near but not inside vehicle (loading/unloading).
-    distance_threshold in pixels (100px ≈ 1 meter on typical camera view)
+    Check if person is near vehicle (loading/unloading).
+    Uses distance to the NEAREST POINT on the vehicle bounding box, not the center.
     """
-    if is_person_inside_bbox(person_center, vehicle_bbox):
-        return False  # Person is inside, not near
+    px, py = person_center
+    vx1, vy1, vx2, vy2 = vehicle_bbox
     
-    # Calculate distance to vehicle bbox center
-    x1, y1, x2, y2 = vehicle_bbox
-    vehicle_center = ((x1 + x2) / 2, (y1 + y2) / 2)
-    distance = calculate_distance(person_center, vehicle_center)
+    # Calculate nearest point on the rectangle to the person
+    nearest_x = max(vx1, min(px, vx2))
+    nearest_y = max(vy1, min(py, vy2))
+    
+    dx = px - nearest_x
+    dy = py - nearest_y
+    
+    distance = math.sqrt(dx*dx + dy*dy)
     
     return distance <= distance_threshold
 
-def process_violations(raw_data):
+def process_violations(raw_data) -> List[Dict[str, Any]]:
     """Helper to convert database tuples to dictionaries for templates."""
-    processed = []
+    processed: List[Dict[str, Any]] = []
     if not raw_data:
         return processed
     for row in raw_data:
-        item = {}
+        item: Dict[str, Any] = {}
         # If row is already a dict-like object (e.g. sqlite3.Row), use it
         if hasattr(row, 'keys'):
             item = dict(row)
@@ -85,8 +98,14 @@ def logs():
 
 @dashboard_bp.route('/api/recent_violations')
 def api_recent_violations():
-    violations = process_violations(db.get_all_violations())
-    return jsonify(violations[:10])
+    # Retrieve all violations as a list of dictionaries
+    all_violations: List[Dict[str, Any]] = process_violations(db.get_all_violations())
+    # Use itertools.islice for safe slicing that satisfies strict type checkers
+    return jsonify(list(itertools.islice(all_violations, 10)))
+
+@dashboard_bp.route('/zone_setup')
+def zone_setup():
+    return render_template('zone_setup.html')
 
 @dashboard_bp.route('/api/wait_for_violation')
 def wait_for_violation():
@@ -166,21 +185,26 @@ def generate_frames():
     # Initialize the centroid tracker with increased max_disappeared
     # Higher value = tracker keeps vehicle IDs longer when temporarily not detected
     # This prevents duplicate IDs for the same vehicle
-    tracker = CentroidTracker(max_disappeared=100)
+    tracker = CentroidTracker(max_disappeared=40)
     
-    vehicle_timers = {}   # {id: start_time}
-    movement_start_pos = {} # {id: (time, cx, cy)}
-    is_stopped_map = {} # {id: bool}
-    violated_ids = set()  # Set of IDs that have already triggered a violation
-    vehicle_types = {}    # {id: vehicle_type}
+    vehicle_timers: Dict[int, float] = {}   # {id: start_time}
+    movement_start_pos: Dict[int, tuple] = {} # {id: (time, cx, cy)}
+    is_stopped_map: Dict[int, bool] = {} # {id: bool}
+    violated_ids: set = set()  # Set of IDs that have already triggered a violation
+    vehicle_types: Dict[int, str] = {}    # {id: vehicle_type}
+    vehicle_loading_status: Dict[int, float] = {} # {id: last_loading_timestamp}
     # Removed all_detections - drawing vehicles directly on detection frames instead
     resolution_checked = False
     
     # FPS optimization parameters
-    frame_skip = getattr(config, 'FRAME_SKIP', 2)  # Process every Nth frame (1=all, 2=every other, etc)
-    frame_count = 0
-    jpeg_quality = getattr(config, 'JPEG_QUALITY', 70)  # Lower = faster, higher = better quality
-    fps_counter = {'frames': 0, 'last_time': time.time(), 'fps': 0}
+    frame_skip: int = int(getattr(config, 'FRAME_SKIP', 2))  # Process every Nth frame (1=all, 2=every other, etc)
+    frame_count: int = 0
+    jpeg_quality: int = int(getattr(config, 'JPEG_QUALITY', 70))  # Lower = faster, higher = better quality
+    
+    # FPS calculation variables
+    fps_frames = 0
+    fps_last_time = time.time()
+    fps_current = 0
 
     while True:
         frame = camera.read_frame()
@@ -191,11 +215,12 @@ def generate_frames():
         current_time = time.time()
         
         # Update FPS counter
-        fps_counter['frames'] += 1
-        if current_time - fps_counter['last_time'] >= 1.0:
-            fps_counter['fps'] = fps_counter['frames']
-            fps_counter['frames'] = 0
-            fps_counter['last_time'] = current_time
+        # Update FPS counter
+        fps_frames += 1
+        if current_time - fps_last_time >= 1.0:
+            fps_current = fps_frames
+            fps_frames = 0
+            fps_last_time = current_time
         
         if not resolution_checked:
             h_debug, w_debug = frame.shape[:2]
@@ -206,6 +231,17 @@ def generate_frames():
                 print(f"CRITICAL WARNING: Yellow Zone points (Max: {max_x},{max_y}) are OUTSIDE the frame ({w_debug}x{h_debug}).")
                 print("The zone will NOT work. Please update config.py FRAME_WIDTH/HEIGHT to match your coordinates.")
             resolution_checked = True
+
+        # Check for dynamic zone updates from config
+        current_config_zone = config.YELLOW_BOX_ZONE
+        # Simple update check: checks if the first point matches. 
+        # For more robustness we could compare the whole list, but this is fast.
+        if len(current_config_zone) > 0 and (yellow_zone[0,0,0] != current_config_zone[0][0] or yellow_zone[0,0,1] != current_config_zone[0][1]):
+             yellow_zone = np.array(current_config_zone, np.int32).reshape((-1, 1, 2))
+             # Update validation bounds
+             x_coords = yellow_zone[:, :, 0]
+             y_coords = yellow_zone[:, :, 1]
+             # Force resolution re-check next frame if needed, but mainly just update the drawing 
         
         # Draw the Yellow Box Zone on every frame
         cv2.polylines(frame, [yellow_zone], isClosed=True, color=(0, 255, 255), thickness=2)
@@ -228,8 +264,8 @@ def generate_frames():
             
             # Convert class IDs to class names and track detections
             bbox_to_label = {}
-            person_count = 0
-            vehicle_count = 0
+            person_count: int = 0
+            vehicle_count: int = 0
             current_persons = []  # Store person detections for proximity checks
             
             for detection in detections_raw:
@@ -250,8 +286,28 @@ def generate_frames():
                 is_in_zone = cv2.pointPolygonTest(yellow_zone, (obj_cx, obj_cy), False) >= 0
                 
                 if label == 'person':
+                    # STRICT CONFIDENCE CHECK for People
+                    # Lowered from 0.65 to 0.45 based on user feedback (some valid persons were missed)
+                    # This balance avoids total ghosts while catching real people
+                    if conf < 0.45:
+                         continue
+                    
+                    # DISTANCE FILTER: Ignore people far from the yellow zone
+                    # Calculate distance from the polygon (Positive=Inside, Negative=Outside)
+                    dist_to_zone = cv2.pointPolygonTest(yellow_zone, (obj_cx, obj_cy), True)
+                    
+                    # If person is more than 250 pixels OUTSIDE the zone, ignore them
+                    if dist_to_zone < -250:
+                        continue
+                         
                     person_count += 1
                     current_persons.append((x1, y1, x2, y2, obj_cx, obj_cy))
+                    
+                    # DRAW PERSON: Visual feedback for user
+                    # Cyan color for persons (0, 255, 255) in BGR is Yellow, let's use Magenta/Pink (255, 0, 255) or Green
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 1)
+                    cv2.putText(frame, f"Person {conf:.2f}", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                    
                     # Store person for later proximity check with vehicles
                     # Will draw if within 1 meter of a multicab (loading/unloading)
                 elif label in ['car', 'truck', 'bus', 'motorcycle']:
@@ -281,6 +337,24 @@ def generate_frames():
         
         # 3. Process Tracked Vehicles
         for obj_id, (centroid, bbox) in tracked_objects_map.items():
+            # Check disappeared status
+            disappeared_count = tracker.disappeared.get(obj_id, 0)
+            
+            # --- FLICKER PREVENTION VS GHOST SUPPRESSION ---
+            # If object has disappeared (not matched to detection this frame):
+            # 1. Don't process for violations (it's effectively 'stationary' because it's stale data)
+            # 2. Don't draw it if it's been gone too long (prevent double outline with new ID)
+            if disappeared_count > 0:
+                # If it's been gone for a while, just skip it entirely to prevent double outlines
+                if disappeared_count > 5:
+                    continue
+                
+                # If it's recently gone, we might draw it for smoothness, 
+                # but we MUST NOT count it as a violation or update its "stopped" timer.
+                # Just mark it as 'not stopped' so invalid timers don't tick.
+                is_stopped_ghost = False
+            else:
+                is_stopped_ghost = None # Process normally
             x1, y1, x2, y2 = bbox
             w, h = x2 - x1, y2 - y1
             # Re-associate the label using the bounding box
@@ -307,7 +381,11 @@ def generate_frames():
             if current_time - start_t >= 1.0:
                 dist = math.hypot(cx - start_x, cy - start_y)
                 # If moved less than 20 pixels in 1 second, consider stopped
-                if dist < 20: 
+                # CRITICAL FIX: If object is disappeared (ghost), force it to be NOT stopped
+                # CRITICAL FIX: If object is disappeared (ghost), force it to be NOT stopped
+                if is_stopped_ghost is not None:
+                     is_stopped_map[obj_id] = False
+                elif dist < 8: # REDUCED from 20 to 8 for stricter "full stop"
                     is_stopped_map[obj_id] = True
                 else:
                     is_stopped_map[obj_id] = False
@@ -320,6 +398,10 @@ def generate_frames():
             # Loop over each person detected
             person_nearby = False
             person_inside = False
+            
+            # Using persistence for loading status to avoid flickering
+            # vehicle_loading_status tracks {obj_id: last_loading_timestamp}
+            
             if current_persons:
                 for px1, py1, px2, py2, pcx, pcy in current_persons:
                     # Check proximity to this vehicle
@@ -329,20 +411,37 @@ def generate_frames():
                     if x1 <= pcx <= x2 and y1 <= pcy <= y2:
                         person_inside = True
                     
-                    # Check if person is near vehicle (loading/unloading - 100px ≈ 1 meter)
-                    elif is_person_near_vehicle((pcx, pcy), vehicle_bbox, distance_threshold=100):
+                    # Check if person is near vehicle (loading/unloading - 60px ≈ 0.6 meter)
+                    # Using improved edge-distance check - Increased from 50 to 60 to catch people "beside" vehicle better
+                    elif is_person_near_vehicle((pcx, pcy), vehicle_bbox, distance_threshold=60):
                         person_nearby = True
-                        # Don't draw on person - will show on vehicle instead
+                        
+                    # draw line if interaction detected
+                    if person_inside or person_nearby:
+                         # Draw connection line for visual feedback
+                         cv2.line(frame, (cx, cy), (pcx, pcy), (0, 255, 0), 1)
+                         cv2.circle(frame, (pcx, pcy), 3, (0, 255, 0), -1)
             
-            # Display LOADING/UNLOADING status on vehicle if person nearby
+            # Update Persistent Loading Status
             if person_nearby or person_inside:
+                vehicle_loading_status[obj_id] = current_time
+            
+            # Check if currently considered "loading" (within last 3 seconds)
+            last_loading_time = vehicle_loading_status.get(obj_id, 0)
+            is_loading_active = (current_time - last_loading_time) < 3.0
+            
+            # Display LOADING/UNLOADING status on vehicle if active
+            if is_loading_active:
                 status_text = "LOADING/UNLOADING"
+                # Draw prominent status
                 cv2.putText(frame, status_text, (x1, y1 - 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             
             # Check if person was previously inside but is now gone (person got out)
             person_got_out = False
             if obj_id in persons_in_vehicle and persons_in_vehicle[obj_id] and not person_inside:
-                person_got_out = True  # Person was inside, now they're not
+                 # Only consider it "got out" if we don't see them nearby immediately (transitioning)
+                 # But generally if they leave the "inside" region, they are getting out.
+                 person_got_out = True
             
             # Update person state for next frame
             if person_inside:
@@ -354,76 +453,96 @@ def generate_frames():
             time_limit = getattr(config, 'STOP_TIME_LIMIT', 15)
 
             # Condition to start/continue timer: in zone, stopped, and a vehicle.
-            if is_in_zone and is_stopped and label != 'person':
-                # Reset timer if person is loading/unloading OR got out of vehicle
-                if person_nearby or person_got_out:
-                    # Person is interacting with vehicle - reset timer to be fair
-                    vehicle_timers[obj_id] = time.time()
-                    vehicle_types[obj_id] = label
-                    # Draw indicator that person is interacting with vehicle
-                    cv2.putText(frame, "LOADING/UNLOADING", (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (100, 200, 255), 1)
-                elif person_inside:
-                    # Person is inside vehicle - don't reset timer
-                    if obj_id not in vehicle_timers:
+            # Condition to start/continue timer: 
+            # 1. Must be in zone.
+            # 2. IF timer already exists, keep it running (even if moving).
+            # 3. IF timer doesn't exist, must be STOPPED to start it.
+            if is_in_zone and label != 'person':
+                timer_active = False
+                
+                # Check start/continue conditions
+                if obj_id in vehicle_timers:
+                    timer_active = True # Continue counting
+                elif is_stopped:
+                    timer_active = True # Start counting from stop
+                
+                if timer_active:
+                    # Reset timer if loading/unloading is active
+                    if is_loading_active or person_got_out:
+                        # Person is interacting - RESET timer to 0
                         vehicle_timers[obj_id] = time.time()
                         vehicle_types[obj_id] = label
-                elif obj_id not in vehicle_timers:
-                    # No person interaction - start normal timer
-                    vehicle_timers[obj_id] = time.time()
-                    vehicle_types[obj_id] = label
-
-                elapsed = time.time() - vehicle_timers[obj_id]
-
-                # If time limit is exceeded, mark as violator (if not already marked)
-                if elapsed >= time_limit and obj_id not in violated_ids:
-                    violated_ids.add(obj_id)
-                    # --- CAPTURE AND SAVE VIOLATION (RUNS ONCE) ---
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        # Draw indicator
+                        cv2.putText(frame, "TIMER RESET", (x1, y1 - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
                     
-                    # Save cropped image (closer view) for easier identification
-                    h_img, w_img, _ = frame.shape
-                    pad = 50  # Padding around the vehicle
-                    crop_x1, crop_y1 = max(0, x1 - pad), max(0, y1 - pad)
-                    crop_x2, crop_y2 = min(w_img, x2 + pad), min(h_img, y2 + pad)
-                    cropped_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                    elif person_inside:
+                         # Person is inside - don't start/reset, just wait? 
+                         # Actually usually if inside, we treat as normal vehicle unless loading.
+                         # If explicitly loading (person_nearby) allowed above. 
+                         # If just inside, we fall through to normal logic.
+                         if obj_id not in vehicle_timers:
+                            vehicle_timers[obj_id] = time.time()
+                            vehicle_types[obj_id] = label
                     
-                    # Get vehicle type
-                    vehicle_type = vehicle_types.get(obj_id, label)
+                    elif obj_id not in vehicle_timers:
+                        # New timer start
+                        vehicle_timers[obj_id] = time.time()
+                        vehicle_types[obj_id] = label
+                        # Debug indicator for stop start
+                        cv2.putText(frame, "STOPPED", (x1, y1 - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
-                    filename = os.path.join(save_dir, f"violation_{timestamp}_{label}_{obj_id}.jpg")
-                    cv2.imwrite(filename, cropped_img)
-                    print(f"Violation saved: {filename}")
+                    # Calculate elapsed
+                    elapsed = time.time() - vehicle_timers[obj_id]
                     
-                    # Save record to database
-                    try:
-                        db_image_path = f"violations/violation_{timestamp}_{label}_{obj_id}.jpg"
-                        db_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    # If time limit is exceeded, mark as violator (if not already marked)
+                    if elapsed >= time_limit and obj_id not in violated_ids:
+                        violated_ids.add(obj_id)
+                        # --- CAPTURE AND SAVE VIOLATION (RUNS ONCE) ---
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         
-                        # Use vehicle type as label
-                        db_label = vehicle_type
+                        # Save cropped image (closer view) for easier identification
+                        h_img, w_img, _ = frame.shape
+                        pad = 50  # Padding around the vehicle
+                        crop_x1, crop_y1 = max(0, x1 - pad), max(0, y1 - pad)
+                        crop_x2, crop_y2 = min(w_img, x2 + pad), min(h_img, y2 + pad)
+                        cropped_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                        
+                        # Get vehicle type
+                        vehicle_type = vehicle_types.get(obj_id, label)
 
-                        # Save to CSV
-                        csv_path = os.path.join(save_dir, "violation_log.csv")
-                        file_exists = os.path.isfile(csv_path)
+                        filename = os.path.join(save_dir, f"violation_{timestamp}_{label}_{obj_id}.jpg")
+                        cv2.imwrite(filename, cropped_img)
+                        print(f"Violation saved: {filename}")
+                        
+                        # Save record to database
                         try:
-                            with open(csv_path, mode='a', newline='') as f:
-                                writer = csv.writer(f)
-                                if not file_exists:
-                                    writer.writerow(['Timestamp', 'Vehicle Type', 'Evidence'])
-                                writer.writerow([db_timestamp, vehicle_type, db_image_path])
-                        except Exception as e:
-                            print(f"CSV Error: {e}")
+                            db_image_path = f"violations/violation_{timestamp}_{label}_{obj_id}.jpg"
+                            db_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            # Use vehicle type as label
+                            db_label = vehicle_type
 
-                        # Ensure your Database class has an insert_violation method
-                        if hasattr(db, 'insert_violation'):
-                            # Prepare image blob
-                            ret, buffer = cv2.imencode('.jpg', cropped_img)
-                            image_blob = buffer.tobytes() if ret else None
-                            
-                            # Create detection ID from timestamp and tracking object ID
-                            detection_id = f"{timestamp}_{obj_id}"
-                            
+                            # Save to CSV
+                            csv_path = os.path.join(save_dir, "violation_log.csv")
+                            file_exists = os.path.isfile(csv_path)
                             try:
+                                with open(csv_path, mode='a', newline='') as f:
+                                    writer = csv.writer(f)
+                                    if not file_exists:
+                                        writer.writerow(['Timestamp', 'Vehicle Type', 'Evidence'])
+                                    writer.writerow([db_timestamp, vehicle_type, db_image_path])
+                            except Exception as e:
+                                print(f"CSV Error: {e}")
+
+                            # Ensure your Database class has an insert_violation method
+                            if hasattr(db, 'insert_violation'):
+                                # Prepare image blob
+                                ret, buffer = cv2.imencode('.jpg', cropped_img)
+                                image_blob = buffer.tobytes() if ret else None
+                                
+                                # Create detection ID from timestamp and tracking object ID
+                                detection_id = f"{timestamp}_{obj_id}"
+                                
                                 # Insert with enhanced parameters
                                 db.insert_violation(
                                     vehicle_type=vehicle_type,
@@ -435,24 +554,20 @@ def generate_frames():
                                     confidence=0.0,  # TODO: maintain confidence mapping
                                     notes=f"Object ID: {obj_id}, Stopped for {elapsed:.1f}s"
                                 )
-                            except TypeError as e:
-                                # Fallback for old signature - use simpler parameters
-                                print(f"Database method signature mismatch: {e}")
-                                try:
-                                    db.insert_violation(vehicle_type, db_timestamp, db_image_path, image_blob)
-                                    print(f"✅ Violation saved to local database (fallback): {detection_id}")
-                                except Exception as e2:
-                                    print(f"Insert violation failed: {e2}")
 
-                    except Exception as e:
-                        print(f"Database error: {e}")
-                    
-                    # After the violation is processed, set the event to notify long-poll clients
-                    new_violation_event.set()
+                        except Exception as e:
+                            print(f"Database error: {e}")
+                        
+                        # After the violation is processed, set the event to notify long-poll clients
+                        new_violation_event.set()
+                else:
+                     # In zone but running and not previously stopped -> No timer
+                     pass
+
             else:
-                # Reset timer if vehicle is not stopped in the zone
-                if obj_id in vehicle_timers:
-                    del vehicle_timers[obj_id]
+                 # Not in zone -> Clear timer
+                 if obj_id in vehicle_timers:
+                     del vehicle_timers[obj_id]
 
             # --- Only draw objects that are INSIDE the yellow zone ---
             if not is_in_zone:
@@ -481,29 +596,34 @@ def generate_frames():
 
         # Cleanup: Remove IDs that are no longer in the frame
         # This prevents memory leaks in the dictionaries
+        # using .pop(k, None) is safer/cleaner than del
         for obj_id in list(vehicle_timers.keys()):
             if obj_id not in current_frame_ids:
-                del vehicle_timers[obj_id]
+                vehicle_timers.pop(obj_id, None)
         
         for obj_id in list(movement_start_pos.keys()):
             if obj_id not in current_frame_ids:
-                del movement_start_pos[obj_id]
+                movement_start_pos.pop(obj_id, None)
         
         for obj_id in list(is_stopped_map.keys()):
             if obj_id not in current_frame_ids:
-                del is_stopped_map[obj_id]
+                is_stopped_map.pop(obj_id, None)
         
         for obj_id in list(vehicle_types.keys()):
             if obj_id not in current_frame_ids:
-                del vehicle_types[obj_id]
+                vehicle_types.pop(obj_id, None)
+        
+        for obj_id in list(vehicle_loading_status.keys()):
+            if obj_id not in current_frame_ids:
+                vehicle_loading_status.pop(obj_id, None)
         
         for obj_id in list(persons_in_vehicle.keys()):
             if obj_id not in current_frame_ids:
-                del persons_in_vehicle[obj_id]
+                persons_in_vehicle.pop(obj_id, None)
         
         for obj_id in list(violated_ids):
             if obj_id not in current_frame_ids:
-                violated_ids.remove(obj_id)
+                violated_ids.discard(obj_id)
         
         
         # Display counts on screen
@@ -515,7 +635,7 @@ def generate_frames():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Display FPS on frame
-        cv2.putText(frame, f"FPS: {fps_counter['fps']}", (10, 30), 
+        cv2.putText(frame, f"FPS: {fps_current}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         # --- OPTIMIZED JPEG ENCODING ---
@@ -533,3 +653,4 @@ def generate_frames():
 @dashboard_bp.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+

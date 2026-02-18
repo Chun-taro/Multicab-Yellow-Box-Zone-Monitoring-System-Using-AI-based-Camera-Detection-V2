@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,7 +25,8 @@
                 padding: 1rem;
             }
 
-            .video-container, .video-feed {
+            .video-container,
+            .video-feed {
                 width: 100%;
                 height: auto;
             }
@@ -39,13 +41,14 @@
                 width: 100%;
             }
 
-            th, td {
+            th,
+            td {
                 padding: 0.5rem !important;
                 font-size: 0.9rem;
             }
 
             /* Hide 'Type' column on dashboard mobile to ensure Evidence button is visible */
-            .dashboard-grid th:nth-child(2), 
+            .dashboard-grid th:nth-child(2),
             .dashboard-grid td:nth-child(2) {
                 display: none;
             }
@@ -64,14 +67,16 @@
         /* Notification Toast */
         .notification-toast {
             position: fixed;
-            top: -100px; /* Hidden initially */
+            top: -100px;
+            /* Hidden initially */
             left: 50%;
             transform: translateX(-50%);
-            background-color: #dc3545; /* Red for alert */
+            background-color: #dc3545;
+            /* Red for alert */
             color: white;
             padding: 1rem 1.5rem;
             border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
             z-index: 10000;
             cursor: pointer;
             transition: top 0.5s ease-in-out;
@@ -107,6 +112,7 @@
         }
     </style>
 </head>
+
 <body>
     <!-- Hamburger Menu Toggle -->
     <button class="hamburger-menu" id="hamburger-menu" onclick="toggleDrawer()">
@@ -127,15 +133,27 @@
         </div>
         <ul class="nav-links">
             <li>
-                <a href="{{ url_for('dashboard.dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" onclick="closeDrawer()">
+                <a href="{{ url_for('dashboard.dashboard') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}"
+                    onclick="closeDrawer()">
                     <i class="fas fa-chart-line"></i>
                     <span>Dashboard</span>
                 </a>
             </li>
             <li>
-                <a href="{{ url_for('dashboard.logs') }}" class="nav-link {% if request.endpoint == 'dashboard.logs' %}active{% endif %}" onclick="closeDrawer()">
+                <a href="{{ url_for('dashboard.logs') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard.logs' %}active{% endif %}"
+                    onclick="closeDrawer()">
                     <i class="fas fa-history"></i>
                     <span>Violation Logs</span>
+                </a>
+            </li>
+            <li>
+                <a href="{{ url_for('dashboard.zone_setup') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard.zone_setup' %}active{% endif %}"
+                    onclick="closeDrawer()">
+                    <i class="fas fa-draw-polygon"></i>
+                    <span>Zone Setup</span>
                 </a>
             </li>
         </ul>
@@ -211,12 +229,12 @@
         function showNotification(violation) {
             const toast = document.getElementById('notification-toast');
             const details = document.getElementById('toast-details');
-            
+
             details.innerText = `Vehicle Type: ${violation.label || 'Unknown'}`;
             currentViolationImage = violation.image_path;
-            
+
             toast.classList.add('show');
-            
+
             // Auto hide after 5 seconds
             setTimeout(() => {
                 toast.classList.remove('show');
@@ -241,7 +259,7 @@
             document.getElementById('globalImageModal').style.display = "none";
         }
 
-        window.onclick = function(event) {
+        window.onclick = function (event) {
             const modal = document.getElementById('globalImageModal');
             if (event.target == modal) {
                 modal.style.display = "none";
@@ -252,4 +270,5 @@
         setInterval(checkNewViolations, 2000);
     </script>
 </body>
+
 </html>
