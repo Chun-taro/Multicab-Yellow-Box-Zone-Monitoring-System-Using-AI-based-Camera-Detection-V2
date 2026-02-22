@@ -15,7 +15,8 @@ class VehicleDetector:
         # Inference with YOLOv8
         # The model handles preprocessing (resizing, normalization) and NMS internally.
         # 'verbose=False' prevents printing detection details to the console on every frame.
-        results = self.model(frame, conf=self.conf_thres, verbose=False)
+        # 'iou=0.75' allows higher overlap between boxes before suppression, helping with occluded vehicles.
+        results = self.model(frame, conf=self.conf_thres, iou=0.75, verbose=False)
 
         detections = []
         # The result object contains detections for the single frame.

@@ -6,127 +6,110 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Yellow Box Monitor</title>
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <!-- Icons -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        /* Responsive Design Overrides */
-        @media (max-width: 1024px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr !important;
-                display: grid;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                padding: 1rem;
-            }
-
-            .video-container,
-            .video-feed {
-                width: 100%;
-                height: auto;
-            }
-
-            .table-container {
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
-            }
-
-            /* Optimize table for small screens */
-            table {
-                width: 100%;
-            }
-
-            th,
-            td {
-                padding: 0.5rem !important;
-                font-size: 0.9rem;
-            }
-
-            /* Hide 'Type' column on dashboard mobile to ensure Evidence button is visible */
-            .dashboard-grid th:nth-child(2),
-            .dashboard-grid td:nth-child(2) {
-                display: none;
-            }
-        }
-
-        @media (max-width: 480px) {
-            .sidebar .brand span {
-                display: none;
-            }
-
-            .sidebar .nav-link span {
-                display: none;
-            }
-        }
-
-        /* Notification Toast */
+        /* Modern Notification Toast (Kept from previous iteration) */
         .notification-toast {
             position: fixed;
-            top: -100px;
-            /* Hidden initially */
+            top: -120px;
             left: 50%;
             transform: translateX(-50%);
-            background-color: #dc3545;
-            /* Red for alert */
-            color: white;
+            background: rgba(23, 30, 43, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5), 0 0 20px rgba(239, 68, 68, 0.15);
+            color: #f8fafc;
             padding: 1rem 1.5rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
             z-index: 10000;
             cursor: pointer;
-            transition: top 0.5s ease-in-out;
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
             display: flex;
             align-items: center;
-            gap: 1rem;
-            min-width: 300px;
+            gap: 1.2rem;
+            min-width: 320px;
+            pointer-events: none;
+            opacity: 0;
         }
 
         .notification-toast.show {
-            top: 20px;
+            top: 24px;
+            pointer-events: all;
+            opacity: 1;
         }
 
         .toast-content {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .toast-icon {
+            color: #ef4444;
+            font-size: 1.8rem;
         }
 
         .toast-message {
             display: flex;
             flex-direction: column;
+            gap: 4px;
         }
 
         .toast-title {
-            font-weight: bold;
-            font-size: 1rem;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            font-size: 1.05rem;
+            color: #ef4444;
         }
 
         .toast-details {
-            font-size: 0.9rem;
-            opacity: 0.9;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+
+        /* Modal Base */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            padding: 24px;
+            width: 90%;
+            max-width: 900px;
+            position: relative;
+            text-align: center;
         }
     </style>
 </head>
 
 <body>
-    <!-- Hamburger Menu Toggle -->
-    <button class="hamburger-menu" id="hamburger-menu" onclick="toggleDrawer()">
-        <span></span>
-        <span></span>
-        <span></span>
-    </button>
-
-    <!-- Drawer Overlay (closes drawer when clicked) -->
+    <!-- Drawer Overlay (Mobile) -->
     <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
 
-    <!-- Sidebar Drawer -->
+    <!-- Persistent Sidebar -->
     <aside class="sidebar" id="sidebar-drawer">
-        <button class="close-drawer" onclick="closeDrawer()">&times;</button>
+        <button class="close-drawer" onclick="closeDrawer()"><i class="fas fa-times"></i></button>
         <div class="brand">
             <i class="fas fa-video"></i>
             <span>TrafficAI</span>
@@ -137,14 +120,14 @@
                     class="nav-link {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}"
                     onclick="closeDrawer()">
                     <i class="fas fa-chart-line"></i>
-                    <span>Dashboard</span>
+                    <span>Live Dashboard</span>
                 </a>
             </li>
             <li>
                 <a href="{{ url_for('dashboard.logs') }}"
                     class="nav-link {% if request.endpoint == 'dashboard.logs' %}active{% endif %}"
                     onclick="closeDrawer()">
-                    <i class="fas fa-history"></i>
+                    <i class="fas fa-clipboard-list"></i>
                     <span>Violation Logs</span>
                 </a>
             </li>
@@ -152,24 +135,36 @@
                 <a href="{{ url_for('dashboard.zone_setup') }}"
                     class="nav-link {% if request.endpoint == 'dashboard.zone_setup' %}active{% endif %}"
                     onclick="closeDrawer()">
-                    <i class="fas fa-draw-polygon"></i>
+                    <i class="fas fa-vector-square"></i>
                     <span>Zone Setup</span>
                 </a>
             </li>
         </ul>
     </aside>
 
-    <!-- Main Content -->
-    <main class="main-content">
-        {% block content %}{% endblock %}
-    </main>
+    <!-- Main Wrapper Container -->
+    <div class="main-wrapper">
+        <!-- Top Navbar -->
+        <header class="top-navbar">
+            <button class="hamburger-menu" onclick="toggleDrawer()">
+                <i class="fas fa-bars"></i>
+            </button>
+            <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+            <div id="status-indicator" style="margin-left:auto;"></div>
+        </header>
+
+        <!-- Dynamic Content Area -->
+        <main class="content-area">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
 
     <!-- Notification Toast -->
     <div id="notification-toast" class="notification-toast" onclick="handleNotificationClick()">
         <div class="toast-content">
-            <i class="fas fa-exclamation-circle fa-lg"></i>
+            <i class="fas fa-exclamation-triangle toast-icon"></i>
             <div class="toast-message">
-                <span class="toast-title">New Violation Detected!</span>
+                <span class="toast-title">Violation Detected!</span>
                 <span id="toast-details" class="toast-details"></span>
             </div>
         </div>
@@ -178,26 +173,28 @@
     <!-- Global Image Modal -->
     <div id="globalImageModal" class="modal">
         <div class="modal-content">
-            <span class="close-modal" onclick="closeGlobalModal()">&times;</span>
-            <h2 style="margin-bottom: 1rem;">Violation Evidence</h2>
-            <img id="globalModalImage" class="modal-image" src="" alt="Violation Evidence">
+            <button class="close-modal" aria-label="Close Modal" onclick="closeGlobalModal()"
+                style="position: absolute; right: 20px; top: 20px; background: none; border:none; color:white; font-size:24px; cursor:pointer;"><i
+                    class="fas fa-times"></i></button>
+            <h2 style="font-family: 'Outfit', sans-serif; color:white; margin-bottom:1rem;">Violation Evidence</h2>
+            <!-- Wrapper for glow effect -->
+            <div
+                style="padding: 4px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.4), transparent); border-radius: 12px; display: inline-block;">
+                <img id="globalModalImage" class="modal-image" src="" alt="Violation Evidence"
+                    style="display: block; max-height: 70vh; max-width:100%;">
+            </div>
         </div>
     </div>
 
     <script>
-        // Toggle Drawer Navigation
         function toggleDrawer() {
-            const sidebar = document.getElementById('sidebar-drawer');
-            const overlay = document.getElementById('drawer-overlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('open');
+            document.getElementById('sidebar-drawer').classList.toggle('open');
+            document.getElementById('drawer-overlay').classList.toggle('open');
         }
 
         function closeDrawer() {
-            const sidebar = document.getElementById('sidebar-drawer');
-            const overlay = document.getElementById('drawer-overlay');
-            sidebar.classList.remove('open');
-            overlay.classList.remove('open');
+            document.getElementById('sidebar-drawer').classList.remove('open');
+            document.getElementById('drawer-overlay').classList.remove('open');
         }
 
         let lastViolationId = 0;
@@ -211,7 +208,6 @@
                         const latest = data[0];
                         const latestId = parseInt(latest.id);
 
-                        // Initialize on first load
                         if (lastViolationId === 0) {
                             lastViolationId = latestId;
                             return;
@@ -226,19 +222,15 @@
                 .catch(err => console.error('Error polling violations:', err));
         }
 
+        let toastTimeout;
         function showNotification(violation) {
             const toast = document.getElementById('notification-toast');
-            const details = document.getElementById('toast-details');
-
-            details.innerText = `Vehicle Type: ${violation.label || 'Unknown'}`;
+            document.getElementById('toast-details').innerText = `Type: ${violation.label || 'Unknown'} - View Image`;
             currentViolationImage = violation.image_path;
 
             toast.classList.add('show');
-
-            // Auto hide after 5 seconds
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 5000);
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => { toast.classList.remove('show'); }, 6000);
         }
 
         function handleNotificationClick() {
@@ -251,7 +243,13 @@
         function openGlobalModal(imagePath) {
             const modal = document.getElementById('globalImageModal');
             const modalImg = document.getElementById('globalModalImage');
-            modalImg.src = '/static/' + imagePath;
+
+            modalImg.style.opacity = 0;
+            setTimeout(() => {
+                modalImg.src = '/static/' + imagePath;
+                modalImg.onload = () => { modalImg.style.transition = 'opacity 0.3s ease'; modalImg.style.opacity = 1; };
+            }, 50);
+
             modal.style.display = "flex";
         }
 
@@ -261,12 +259,13 @@
 
         window.onclick = function (event) {
             const modal = document.getElementById('globalImageModal');
-            if (event.target == modal) {
-                modal.style.display = "none";
-            }
+            if (event.target == modal) { modal.style.display = "none"; }
         }
 
-        // Poll every 2 seconds for notifications
+        document.addEventListener('keydown', function (event) {
+            if (event.key === "Escape") { closeGlobalModal(); closeDrawer(); }
+        });
+
         setInterval(checkNewViolations, 2000);
     </script>
 </body>

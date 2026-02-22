@@ -1,34 +1,39 @@
 {% extends "layout.html" %}
 
+{% block page_title %}Violation History{% endblock %}
+
 {% block content %}
-<div class="header">
-    <h1 class="page-title">Violation History</h1>
-</div>
 
 <div class="card">
-    <div class="card-body">
+    <div class="card-header">
+        <span><i class="fas fa-clipboard-list"></i> Recorded Infractions</span>
+    </div>
+    <div class="card-body" style="padding: 0;">
         {% if violations %}
-        <div class="table-container">
+        <div class="table-container" style="max-height: 70vh; overflow-y:auto;">
             <table>
-                <thead>
+                <thead style="position: sticky; top:0; background: rgba(0,0,0,0.8); z-index: 10;">
                     <tr>
                         <th>ID</th>
                         <th>Timestamp</th>
                         <th>Vehicle Type</th>
-                        <th>Evidence</th>
+                        <th style="text-align: right;">Evidence</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for v in violations %}
                     <tr>
-                        <td>#{{ v.id }}</td>
+                        <td style="color: var(--text-muted);">#{{ v.id }}</td>
                         <td>{{ v.timestamp }}</td>
-                        <td>{{ v.label }}</td>
-                        <td>
+                        <td><span class="violation-tag">{{ v.label }}</span></td>
+                        <td style="text-align: right;">
                             {% if v.image_path %}
-                            <button class="btn-view" onclick="openGlobalModal('{{ v.image_path }}')">View Image</button>
+                            <button class="btn btn-primary" style="padding: 0.4rem 0.8rem;"
+                                onclick="openGlobalModal('{{ v.image_path }}')"><i class="fas fa-eye"></i> View
+                                File</button>
                             {% else %}
-                            <span style="color: var(--text-muted);">No Image</span>
+                            <span style="color: var(--text-muted); font-size: 0.85rem; font-style: italic;"><i
+                                    class="fas fa-image-slash"></i> No Image</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -37,7 +42,11 @@
             </table>
         </div>
         {% else %}
-            <p style="color: var(--text-muted); text-align: center;">No violations recorded in the database.</p>
+        <div
+            style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 5rem 0; color: var(--text-muted); opacity: 0.7;">
+            <i class="fas fa-folder-open" style="font-size: 4rem; margin-bottom: 1.5rem;"></i>
+            <p style="text-align: center; font-size:1.1rem;">No violations recorded in the database.</p>
+        </div>
         {% endif %}
     </div>
 </div>

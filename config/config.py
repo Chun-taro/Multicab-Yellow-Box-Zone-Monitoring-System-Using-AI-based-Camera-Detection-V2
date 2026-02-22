@@ -67,9 +67,9 @@ class Config:
     STOP_TIME_LIMIT = 15  # seconds vehicle can stop in zone before violation
 
     # Performance optimization settings
-    FRAME_SKIP = 2  # Process AI model every Nth frame (1=all frames, 2=every other, 3=every 3rd, etc)
-    # Tip: Higher frame skip = faster FPS but less frequent detections
-    # Current: 2 = AI runs every other frame for balanced ~20 FPS performance
+    FRAME_SKIP = 3  # Process AI model every Nth frame (1=all frames for full 30 FPS if hardware allows)
+    # Tip: Higher frame skip = faster apparent FPS output but less frequent 'AI brain' updates
+    # Current: 3 = AI runs every 3rd frame for better streaming FPS on lower-end hardware
     
     JPEG_QUALITY = 70  # JPEG quality (1-100, lower=faster+smaller, higher=better quality)
     # Current: 70 = High quality streaming for clear vehicle detection

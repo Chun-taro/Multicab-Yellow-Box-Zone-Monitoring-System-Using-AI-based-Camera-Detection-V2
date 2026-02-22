@@ -1,57 +1,73 @@
 {% extends "layout.html" %}
 
+{% block page_title %}Live Monitoring{% endblock %}
+
 {% block content %}
-<div class="header">
-    <h1 class="page-title">Live Monitoring</h1>
-    <div class="status-badge status-live">
-        <div class="status-dot"></div>
-        <span>System Active</span>
-    </div>
-</div>
+<!-- Inject status badge directly into navbar from content block -->
+<script>
+    document.getElementById('status-indicator').innerHTML = `
+        <div class="status-badge status-live">
+            <div class="status-dot tooltip"></div>
+            <span>System Active</span>
+        </div>
+    `;
+</script>
 
 <div class="dashboard-grid">
-    <!-- Video Feed Section -->
-    <div class="card">
-        <div class="card-header">
-            <span><i class="fas fa-camera"></i> Camera Feed 01</span>
-        </div>
-        <div class="card-body" style="padding: 0; background: #000;">
-            <div class="video-container">
-                <img src="{{ url_for('dashboard.video_feed') }}" alt="Live Video Feed" class="video-feed">
+    <!-- Camera Feed -->
+    <div class="grid-col-video">
+        <div class="card">
+            <div class="card-header">
+                <span><i class="fas fa-camera"></i> Camera Feed 01</span>
+            </div>
+            <div class="card-body no-padding">
+                <div class="video-container">
+                    <img src="{{ url_for('dashboard.video_feed') }}" alt="Live Video Feed" class="video-feed">
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Recent Violations Section -->
-    <div class="card">
-        <div class="card-header">
-            <span><i class="fas fa-exclamation-triangle"></i> Recent Alerts</span>
-        </div>
-        <div class="card-body" id="recent-alerts-container">
-            {% if violations %}
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Time</th>
-                            <th>Vehicle Type</th>
-                            <th>Evidence</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for v in violations[:10] %}
-                        <tr>
-                            <td>{{ v.timestamp }}</td>
-                            <td><span class="violation-tag">{{ v.label }}</span></td>
-                            <td><button class="btn-view" onclick="openGlobalModal('{{ v.image_path }}')">View</button></td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    <!-- Recent Alerts -->
+    <div class="grid-col-alerts">
+        <div class="card">
+            <div class="card-header">
+                <span><i class="fas fa-exclamation-triangle"></i> Recent Alerts</span>
             </div>
-            {% else %}
-                <p style="color: var(--text-muted); text-align: center; margin-top: 2rem;">No recent violations detected.</p>
-            {% endif %}
+            <div class="card-body" id="recent-alerts-container" style="padding:0; overflow-y:auto; overflow-x:hidden;">
+                {% if violations %}
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date & Time</th>
+                                <th>Vehicle</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for v in violations[:8] %}
+                            <tr>
+                                <td style="font-size: 0.8rem; color: var(--text-muted); padding-right: 2rem;">{{
+                                    v.timestamp }}</td>
+                                <td><span class="violation-tag">{{ v.label }}</span></td>
+                                <td style="text-align: right;"><button class="btn-view"
+                                        onclick="openGlobalModal('{{ v.image_path }}')"><i
+                                            class="fas fa-eye"></i></button></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div
+                    style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height:200px; color: var(--text-muted); opacity: 0.7;">
+                    <i class="fas fa-shield-alt"
+                        style="font-size: 3rem; margin-bottom: 1rem; color: var(--success-color);"></i>
+                    <p style="text-align: center;">No recent violations.</p>
+                </div>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
@@ -60,7 +76,11 @@
     function updateViolationList(data) {
         const container = document.getElementById('recent-alerts-container');
         if (data.length === 0) {
-            container.innerHTML = '<p style="color: var(--text-muted); text-align: center; margin-top: 2rem;">No recent violations detected.</p>';
+            container.innerHTML = `
+                <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height:200px; color: var(--text-muted); opacity: 0.7;">
+                    <i class="fas fa-shield-alt" style="font-size: 3rem; margin-bottom: 1rem; color: var(--success-color);"></i>
+                    <p style="text-align: center;">No recent violations.</p>
+                </div>`;
             return;
         }
 
@@ -69,19 +89,19 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Time</th>
-                        <th>Vehicle Type</th>
-                        <th>Evidence</th>
+                        <th>Date & Time</th>
+                        <th>Vehicle</th>
+                        <th style="text-align: right;">Action</th>
                     </tr>
                 </thead>
                 <tbody>`;
-        
-        data.forEach(v => {
+
+        data.slice(0, 8).forEach(v => {
             html += `
                 <tr>
-                    <td>${v.timestamp}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted); padding-right: 2rem;">${v.timestamp}</td>
                     <td><span class="violation-tag">${v.label}</span></td>
-                    <td><button class="btn-view" onclick="openGlobalModal('${v.image_path}')">View</button></td>
+                    <td style="text-align: right;"><button class="btn-view" onclick="openGlobalModal('${v.image_path}')"><i class="fas fa-eye"></i></button></td>
                 </tr>`;
         });
 
@@ -90,28 +110,21 @@
     }
 
     function pollForViolations() {
-        // 1. Make a request to the long-polling endpoint and wait for the server to respond.
         fetch('/api/wait_for_violation')
             .then(response => response.json())
             .then(data => {
-                // 2. If the server signals an update has occurred...
                 if (data.update) {
-                    console.log("New violation detected! Fetching updated list.");
-                    // ...fetch the new list of recent violations.
                     fetch('/api/recent_violations')
                         .then(response => response.json())
                         .then(violations => updateViolationList(violations));
                 }
-                // 3. Whether there was an update or not, immediately poll again.
                 pollForViolations();
             })
             .catch(error => {
-                console.error('Long polling error:', error);
-                setTimeout(pollForViolations, 5000); // Wait 5s on error before retrying
+                setTimeout(pollForViolations, 5000);
             });
     }
 
-    // Start the long-polling process once the page is loaded.
     document.addEventListener('DOMContentLoaded', pollForViolations);
 </script>
 {% endblock %}

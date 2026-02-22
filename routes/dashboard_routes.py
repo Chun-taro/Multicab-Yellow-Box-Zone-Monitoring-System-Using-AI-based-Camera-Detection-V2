@@ -184,8 +184,8 @@ def generate_frames():
     # Use the more robust CentroidTracker for better performance and accuracy
     # Initialize the centroid tracker with increased max_disappeared
     # Higher value = tracker keeps vehicle IDs longer when temporarily not detected
-    # This prevents duplicate IDs for the same vehicle
-    tracker = CentroidTracker(max_disappeared=40)
+    # max_distance is reduced to 90 to prevent ID swapping when vehicles are closely overlapping
+    tracker = CentroidTracker(max_disappeared=40, max_distance=90)
     
     vehicle_timers: Dict[int, float] = {}   # {id: start_time}
     movement_start_pos: Dict[int, tuple] = {} # {id: (time, cx, cy)}
@@ -312,18 +312,12 @@ def generate_frames():
                     # Will draw if within 1 meter of a multicab (loading/unloading)
                 elif label in ['car', 'truck', 'bus', 'motorcycle']:
                     vehicle_count += 1
-                    
-                    
                     # Only track vehicles that are IN the zone (for violation detection)
                     if is_in_zone:
                         rect = (x1, y1, x2, y2)
                         detections_for_tracker.append(rect)
                         bbox_to_label[rect] = label
                         # Vehicles inside zone are drawn by tracker below
-                    else:
-                        # Draw vehicles OUTSIDE zone directly (gray outline)
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (128, 128, 128), 1)
-                        cv2.putText(frame, f"{label}", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (128, 128, 128), 1)
 
             # 2. Update Tracker
             tracked_objects_map = tracker.update(detections_for_tracker)
@@ -359,13 +353,15 @@ def generate_frames():
             w, h = x2 - x1, y2 - y1
             # Re-associate the label using the bounding box
             label = bbox_to_label.get(tuple(bbox), 'vehicle') if (frame_count % frame_skip) == 0 else vehicle_types.get(obj_id, 'vehicle')
-            
-            # Override label to 'multicab' for vehicles in yellow box zone
-            label = 'multicab'
 
             # Calculate center point and explicitly cast to standard Python integers.
             # This prevents a cv2.error caused by passing numpy integer types to OpenCV functions.
             cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+            
+            # Use top-center for movement tracking because it's more stable when vehicles are occluded from the bottom
+            stable_cx = int((x1 + x2) / 2)
+            stable_cy = int(y1 + (y2 - y1) * 0.2)
+
             current_frame_ids.add(obj_id)
             
             # Check if inside Yellow Zone
@@ -374,23 +370,21 @@ def generate_frames():
             # Check if Stopped (compare with position 1 second ago)
             current_time = time.time()
             if obj_id not in movement_start_pos:
-                movement_start_pos[obj_id] = (current_time, cx, cy)
+                movement_start_pos[obj_id] = (current_time, stable_cx, stable_cy)
                 is_stopped_map[obj_id] = False # Assume moving initially
             
             start_t, start_x, start_y = movement_start_pos[obj_id]
             if current_time - start_t >= 1.0:
-                dist = math.hypot(cx - start_x, cy - start_y)
-                # If moved less than 20 pixels in 1 second, consider stopped
-                # CRITICAL FIX: If object is disappeared (ghost), force it to be NOT stopped
+                dist = math.hypot(stable_cx - start_x, stable_cy - start_y)
                 # CRITICAL FIX: If object is disappeared (ghost), force it to be NOT stopped
                 if is_stopped_ghost is not None:
                      is_stopped_map[obj_id] = False
-                elif dist < 8: # REDUCED from 20 to 8 for stricter "full stop"
+                elif dist < 15: # Increased from 8 to 15 to tolerate bounding box jiggle from occlusion
                     is_stopped_map[obj_id] = True
                 else:
                     is_stopped_map[obj_id] = False
                 # Reset reference
-                movement_start_pos[obj_id] = (current_time, cx, cy)
+                movement_start_pos[obj_id] = (current_time, stable_cx, stable_cy)
             
             is_stopped = is_stopped_map.get(obj_id, False)
 
@@ -404,23 +398,26 @@ def generate_frames():
             
             if current_persons:
                 for px1, py1, px2, py2, pcx, pcy in current_persons:
-                    # Check proximity to this vehicle
-                    vehicle_bbox = (x1, y1, x2, y2)
-                    
-                    # Check if person is inside vehicle bbox (got in)
-                    if x1 <= pcx <= x2 and y1 <= pcy <= y2:
-                        person_inside = True
-                    
-                    # Check if person is near vehicle (loading/unloading - 60px ≈ 0.6 meter)
-                    # Using improved edge-distance check - Increased from 50 to 60 to catch people "beside" vehicle better
-                    elif is_person_near_vehicle((pcx, pcy), vehicle_bbox, distance_threshold=60):
-                        person_nearby = True
+                    # ONLY consider people on the RIGHT side of the vehicle's center
+                    # because the real sidewalk is on the right. People on the left are in the street.
+                    if pcx > stable_cx:
+                        # Check proximity to this vehicle
+                        vehicle_bbox = (x1, y1, x2, y2)
                         
-                    # draw line if interaction detected
-                    if person_inside or person_nearby:
-                         # Draw connection line for visual feedback
-                         cv2.line(frame, (cx, cy), (pcx, pcy), (0, 255, 0), 1)
-                         cv2.circle(frame, (pcx, pcy), 3, (0, 255, 0), -1)
+                        # Check if person is inside vehicle bbox (got in)
+                        if x1 <= pcx <= x2 and y1 <= pcy <= y2:
+                            person_inside = True
+                        
+                        # Check if person is near vehicle (loading/unloading - 60px ≈ 0.6 meter)
+                        # Using improved edge-distance check - Increased from 50 to 60 to catch people "beside" vehicle better
+                        elif is_person_near_vehicle((pcx, pcy), vehicle_bbox, distance_threshold=60):
+                            person_nearby = True
+                            
+                        # draw line if interaction detected
+                        if person_inside or person_nearby:
+                             # Draw connection line for visual feedback
+                             cv2.line(frame, (stable_cx, stable_cy), (pcx, pcy), (0, 255, 0), 1)
+                             cv2.circle(frame, (pcx, pcy), 3, (0, 255, 0), -1)
             
             # Update Persistent Loading Status
             if person_nearby or person_inside:
@@ -592,7 +589,17 @@ def generate_frames():
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
             label_text = f"{label} ID:{obj_id}"
             cv2.putText(frame, label_text, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
-            cv2.circle(frame, (cx, cy), 2, color, -1)
+            
+            # Draw 5 tracking anchor points
+            tracking_points = [
+                (x1, y1),                           # Top-left
+                (x2, y1),                           # Top-right
+                (int((x1+x2)/2), int((y1+y2)/2)),   # Center
+                (x1, y2),                           # Bottom-left
+                (x2, y2)                            # Bottom-right
+            ]
+            for pt in tracking_points:
+                cv2.circle(frame, pt, 3, (0, 255, 255), -1) # Yellow dots for tracking anchors
 
         # Cleanup: Remove IDs that are no longer in the frame
         # This prevents memory leaks in the dictionaries

@@ -19,6 +19,16 @@ class CentroidTracker:
         del self.objects[object_id]
         del self.disappeared[object_id]
 
+    def _compute_5_points(self, bbox):
+        startX, startY, endX, endY = bbox
+        return np.array([
+            [startX, startY],                           # Top-Left
+            [endX, startY],                             # Top-Right
+            [(startX + endX) / 2.0, (startY + endY) / 2.0], # Center
+            [startX, endY],                             # Bottom-Left
+            [endX, endY]                                # Bottom-Right
+        ])
+
     def update(self, rects):
         if len(rects) == 0:
             for object_id in list(self.disappeared.keys()):
@@ -30,7 +40,7 @@ class CentroidTracker:
         input_centroids = np.zeros((len(rects), 2), dtype="int")
         for (i, (startX, startY, endX, endY)) in enumerate(rects):
             cX = int((startX + endX) / 2.0)
-            cY = int((startY + endY) / 2.0)
+            cY = int(startY + (endY - startY) * 0.2)
             input_centroids[i] = (cX, cY)
 
         if len(self.objects) == 0:
@@ -38,10 +48,25 @@ class CentroidTracker:
                 self.register(input_centroids[i], rects[i])
         else:
             object_ids = list(self.objects.keys())
-            # Extract centroids for distance calculation
-            object_centroids = [c for c, b in self.objects.values()]
-
-            D = dist.cdist(np.array(object_centroids), input_centroids)
+            
+            # Compute distance matrix D based on 5-point tracking anchor matching
+            D = np.zeros((len(object_ids), len(rects)))
+            
+            for row, obj_id in enumerate(object_ids):
+                _, obj_bbox = self.objects[obj_id]
+                obj_5pts = self._compute_5_points(obj_bbox)
+                
+                for col, rect in enumerate(rects):
+                    rect_5pts = self._compute_5_points(rect)
+                    
+                    # Calculate Euclidian distances between the 5 corresponding points
+                    pt_distances = np.linalg.norm(obj_5pts - rect_5pts, axis=1)
+                    
+                    # Take average distance of the 2 most stable (closest) points.
+                    # This allows the tracker to ignore up to 3 points that jump wildly during occlusion.
+                    track_dist = np.mean(np.sort(pt_distances)[:2])
+                    
+                    D[row, col] = track_dist
 
             rows = D.min(axis=1).argsort()
             cols = D.argmin(axis=1)[rows]
