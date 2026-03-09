@@ -184,8 +184,8 @@ def generate_frames():
     # Use the more robust CentroidTracker for better performance and accuracy
     # Initialize the centroid tracker with increased max_disappeared
     # Higher value = tracker keeps vehicle IDs longer when temporarily not detected
-    # max_distance is reduced to 90 to prevent ID swapping when vehicles are closely overlapping
-    tracker = CentroidTracker(max_disappeared=40, max_distance=90)
+    # max_distance increased to 150 to handle larger jumps in high-res frames
+    tracker = CentroidTracker(max_disappeared=40, max_distance=150)
     
     vehicle_timers: Dict[int, float] = {}   # {id: start_time}
     movement_start_pos: Dict[int, tuple] = {} # {id: (time, cx, cy)}
@@ -277,13 +277,24 @@ def generate_frames():
                     continue
                     
                 label = class_names[cls_id]
+                
+                # VEHICLE FALLBACK: If AI thinks it's a truck or bus (or generic vehicle), 
+                # map it to 'car' as requested by the user for multicab consistency.
+                if label in ['truck', 'bus', 'vehicle']:
+                    label = 'car'
+                    
                 x1, y1, x2, y2 = detection['bbox']
                 x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
                 
-                # Calculate centroid for zone checking
+                # Calculate centroid and roof point for zone checking
                 obj_cx = int((x1 + x2) / 2)
                 obj_cy = int((y1 + y2) / 2)
-                is_in_zone = cv2.pointPolygonTest(yellow_zone, (obj_cx, obj_cy), False) >= 0
+                obj_stable_cx = int((x1 + x2) / 2)
+                obj_stable_cy = int(y1 + (y2 - y1) * 0.2)
+                
+                is_center_in = cv2.pointPolygonTest(yellow_zone, (obj_cx, obj_cy), False) >= 0
+                is_roof_in = cv2.pointPolygonTest(yellow_zone, (obj_stable_cx, obj_stable_cy), False) >= 0
+                is_in_zone = is_center_in or is_roof_in
                 
                 if label == 'person':
                     # STRICT CONFIDENCE CHECK for People
@@ -312,12 +323,12 @@ def generate_frames():
                     # Will draw if within 1 meter of a multicab (loading/unloading)
                 elif label in ['car', 'truck', 'bus', 'motorcycle']:
                     vehicle_count += 1
-                    # Only track vehicles that are IN the zone (for violation detection)
+                    # ONLY track vehicles that are in the yellow box
+                    # (User requested to revert to in-zone only tracking)
                     if is_in_zone:
                         rect = (x1, y1, x2, y2)
                         detections_for_tracker.append(rect)
                         bbox_to_label[rect] = label
-                        # Vehicles inside zone are drawn by tracker below
 
             # 2. Update Tracker
             tracked_objects_map = tracker.update(detections_for_tracker)
@@ -340,15 +351,22 @@ def generate_frames():
             # 2. Don't draw it if it's been gone too long (prevent double outline with new ID)
             if disappeared_count > 0:
                 # If it's been gone for a while, just skip it entirely to prevent double outlines
-                if disappeared_count > 5:
+                # This should be less than max_disappeared to show the 'ghost' for a bit
+                if disappeared_count > 15:
                     continue
                 
                 # If it's recently gone, we might draw it for smoothness, 
                 # but we MUST NOT count it as a violation or update its "stopped" timer.
                 # Just mark it as 'not stopped' so invalid timers don't tick.
                 is_stopped_ghost = False
+                
+                # IMPORTANT: While disappeared, we don't update the timer.
+                # However, we DO keep the ID in current_frame_ids so the state isn't deleted yet.
+                current_frame_ids.add(obj_id)
             else:
                 is_stopped_ghost = None # Process normally
+                current_frame_ids.add(obj_id)
+
             x1, y1, x2, y2 = bbox
             w, h = x2 - x1, y2 - y1
             # Re-associate the label using the bounding box
@@ -361,11 +379,15 @@ def generate_frames():
             # Use top-center for movement tracking because it's more stable when vehicles are occluded from the bottom
             stable_cx = int((x1 + x2) / 2)
             stable_cy = int(y1 + (y2 - y1) * 0.2)
-
-            current_frame_ids.add(obj_id)
             
-            # Check if inside Yellow Zone
-            is_in_zone = cv2.pointPolygonTest(yellow_zone, (cx, cy), False) >= 0
+            # Hybrid Zone Check: Vehicle is "In Zone" if either Center or Roof is inside.
+            is_center_in = cv2.pointPolygonTest(yellow_zone, (cx, cy), False) >= 0
+            is_roof_in = cv2.pointPolygonTest(yellow_zone, (stable_cx, stable_cy), False) >= 0
+            is_in_zone = is_center_in or is_roof_in
+            
+            # VISUAL FILTER: 
+            # ZONE FOCUS: If the vehicle is outside the zone, we track it internally but don't draw it.
+            should_draw = is_in_zone
             
             # Check if Stopped (compare with position 1 second ago)
             current_time = time.time()
@@ -375,17 +397,18 @@ def generate_frames():
             
             start_t, start_x, start_y = movement_start_pos[obj_id]
             if current_time - start_t >= 1.0:
-                dist = math.hypot(stable_cx - start_x, stable_cy - start_y)
                 # CRITICAL FIX: If object is disappeared (ghost), force it to be NOT stopped
                 if is_stopped_ghost is not None:
                      is_stopped_map[obj_id] = False
-                elif dist < 15: # Increased from 8 to 15 to tolerate bounding box jiggle from occlusion
-                    is_stopped_map[obj_id] = True
                 else:
-                    is_stopped_map[obj_id] = False
+                    dist_moved = math.hypot(stable_cx - start_x, stable_cy - start_y)
+                    if dist_moved < 15: # Increased from 8 to 15 to tolerate bounding box jiggle from occlusion
+                        is_stopped_map[obj_id] = True
+                    else:
+                        is_stopped_map[obj_id] = False
+                
                 # Reset reference
                 movement_start_pos[obj_id] = (current_time, stable_cx, stable_cy)
-            
             is_stopped = is_stopped_map.get(obj_id, False)
 
             # --- CHECK FOR PEOPLE IN VEHICLE (Violation Detection) ---
@@ -393,6 +416,11 @@ def generate_frames():
             person_nearby = False
             person_inside = False
             
+            # If the vehicle is currently "disappeared" (occluded), skip violation logic
+            # and interaction logic to avoid false triggers or state corruption.
+            if is_stopped_ghost is not None:
+                continue
+
             # Using persistence for loading status to avoid flickering
             # vehicle_loading_status tracks {obj_id: last_loading_timestamp}
             
@@ -409,15 +437,8 @@ def generate_frames():
                             person_inside = True
                         
                         # Check if person is near vehicle (loading/unloading - 60px ≈ 0.6 meter)
-                        # Using improved edge-distance check - Increased from 50 to 60 to catch people "beside" vehicle better
                         elif is_person_near_vehicle((pcx, pcy), vehicle_bbox, distance_threshold=60):
                             person_nearby = True
-                            
-                        # draw line if interaction detected
-                        if person_inside or person_nearby:
-                             # Draw connection line for visual feedback
-                             cv2.line(frame, (stable_cx, stable_cy), (pcx, pcy), (0, 255, 0), 1)
-                             cv2.circle(frame, (pcx, pcy), 3, (0, 255, 0), -1)
             
             # Update Persistent Loading Status
             if person_nearby or person_inside:
@@ -426,67 +447,30 @@ def generate_frames():
             # Check if currently considered "loading" (within last 3 seconds)
             last_loading_time = vehicle_loading_status.get(obj_id, 0)
             is_loading_active = (current_time - last_loading_time) < 3.0
-            
-            # Display LOADING/UNLOADING status on vehicle if active
-            if is_loading_active:
-                status_text = "LOADING/UNLOADING"
-                # Draw prominent status
-                cv2.putText(frame, status_text, (x1, y1 - 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-            
-            # Check if person was previously inside but is now gone (person got out)
-            person_got_out = False
-            if obj_id in persons_in_vehicle and persons_in_vehicle[obj_id] and not person_inside:
-                 # Only consider it "got out" if we don't see them nearby immediately (transitioning)
-                 # But generally if they leave the "inside" region, they are getting out.
-                 person_got_out = True
-            
-            # Update person state for next frame
-            if person_inside:
-                persons_in_vehicle[obj_id] = True
-            elif person_got_out:
-                persons_in_vehicle[obj_id] = False
 
             # --- State Management & Violation Triggering ---
             time_limit = getattr(config, 'STOP_TIME_LIMIT', 15)
 
             # Condition to start/continue timer: in zone, stopped, and a vehicle.
-            # Condition to start/continue timer: 
-            # 1. Must be in zone.
-            # 2. IF timer already exists, keep it running (even if moving).
-            # 3. IF timer doesn't exist, must be STOPPED to start it.
             if is_in_zone and label != 'person':
                 timer_active = False
                 
                 # Check start/continue conditions
                 if obj_id in vehicle_timers:
-                    timer_active = True # Continue counting
-                elif is_stopped:
+                    # If loading is active, reset/stop the timer
+                    if is_loading_active:
+                        vehicle_timers.pop(obj_id, None)
+                        timer_active = False
+                    else:
+                        timer_active = True # Continue counting
+                elif is_stopped and not is_loading_active:
                     timer_active = True # Start counting from stop
                 
                 if timer_active:
-                    # Reset timer if loading/unloading is active
-                    if is_loading_active or person_got_out:
-                        # Person is interacting - RESET timer to 0
-                        vehicle_timers[obj_id] = time.time()
-                        vehicle_types[obj_id] = label
-                        # Draw indicator
-                        cv2.putText(frame, "TIMER RESET", (x1, y1 - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-                    
-                    elif person_inside:
-                         # Person is inside - don't start/reset, just wait? 
-                         # Actually usually if inside, we treat as normal vehicle unless loading.
-                         # If explicitly loading (person_nearby) allowed above. 
-                         # If just inside, we fall through to normal logic.
-                         if obj_id not in vehicle_timers:
-                            vehicle_timers[obj_id] = time.time()
-                            vehicle_types[obj_id] = label
-                    
-                    elif obj_id not in vehicle_timers:
+                    if obj_id not in vehicle_timers:
                         # New timer start
                         vehicle_timers[obj_id] = time.time()
                         vehicle_types[obj_id] = label
-                        # Debug indicator for stop start
-                        cv2.putText(frame, "STOPPED", (x1, y1 - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
                     # Calculate elapsed
                     elapsed = time.time() - vehicle_timers[obj_id]
@@ -502,7 +486,17 @@ def generate_frames():
                         pad = 50  # Padding around the vehicle
                         crop_x1, crop_y1 = max(0, x1 - pad), max(0, y1 - pad)
                         crop_x2, crop_y2 = min(w_img, x2 + pad), min(h_img, y2 + pad)
-                        cropped_img = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+                        cropped_img = frame[crop_y1:crop_y2, crop_x1:crop_x2].copy()
+                        
+                        # Draw violation marker on the cropped image for clear identification
+                        # Calculate relative coordinates for the crop
+                        rel_x1, rel_y1 = x1 - crop_x1, y1 - crop_y1
+                        rel_x2, rel_y2 = x2 - crop_x1, y2 - crop_y1
+                        
+                        # Draw red rectangle and "VIOLATION" text
+                        cv2.rectangle(cropped_img, (rel_x1, rel_y1), (rel_x2, rel_y2), (0, 0, 255), 2)
+                        cv2.putText(cropped_img, "VIOLATION", (rel_x1, rel_y1 - 10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
                         
                         # Get vehicle type
                         vehicle_type = vehicle_types.get(obj_id, label)
@@ -564,42 +558,37 @@ def generate_frames():
             else:
                  # Not in zone -> Clear timer
                  if obj_id in vehicle_timers:
-                     del vehicle_timers[obj_id]
-
-            # --- Only draw objects that are INSIDE the yellow zone ---
-            if not is_in_zone:
-                continue  # Skip drawing objects outside the zone
+                     vehicle_timers.pop(obj_id, None)
 
             # --- Drawing Logic ---
-            # 1. Check if it's a confirmed, persistent violator
-            if obj_id in violated_ids:
-                color = (0, 0, 255) # Red for violation
-                cv2.putText(frame, "VIOLATION", (x1, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            # 2. Else, check if it's in a warning state (stopped in zone, timer running)
-            elif obj_id in vehicle_timers:
-                elapsed = time.time() - vehicle_timers[obj_id]
-                remaining = int(time_limit - elapsed)
-                color = (0, 165, 255) # Orange for warning
-                cv2.putText(frame, f"{remaining}s", (x1, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-            # 3. Otherwise, it's a safe vehicle
-            else:
-                color = (255, 0, 0) # Blue for safe
+            if should_draw:
+                # 1. Check if it's a confirmed, persistent violator
+                if obj_id in violated_ids:
+                    color = (0, 0, 255) # Red for violation
+                    cv2.putText(frame, "VIOLATION", (x1, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                # 2. Else, Check if it's in a warning state (stopped in zone, timer running)
+                elif obj_id in vehicle_timers:
+                    elapsed = time.time() - vehicle_timers[obj_id]
+                    remaining = int(time_limit - elapsed)
+                    color = (0, 165, 255) # Orange for warning
+                    cv2.putText(frame, f"{remaining}s", (x1, y1 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+                # 3. Otherwise, it's a safe vehicle
+                else:
+                    color = (255, 0, 0) # Blue for safe
 
-            # Draw the bounding box with the determined color
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
-            label_text = f"{label} ID:{obj_id}"
-            cv2.putText(frame, label_text, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                # Draw the bounding box with the determined color
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 1)
+                label_text = f"{label} ID:{obj_id}"
+                cv2.putText(frame, label_text, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+                
+                # Draw tracking anchor points (Dual Sensing: Roof and Center)
+                cv2.circle(frame, (stable_cx, stable_cy), 4, (0, 255, 255), -1) # Yellow Roof Dot
+                cv2.circle(frame, (cx, cy), 4, (255, 255, 0), -1)             # Cyan Center Dot
             
-            # Draw 5 tracking anchor points
-            tracking_points = [
-                (x1, y1),                           # Top-left
-                (x2, y1),                           # Top-right
-                (int((x1+x2)/2), int((y1+y2)/2)),   # Center
-                (x1, y2),                           # Bottom-left
-                (x2, y2)                            # Bottom-right
-            ]
+            tracking_points = [(x1, y1), (x2, y1), (x1, y2), (x2, y2)]
             for pt in tracking_points:
-                cv2.circle(frame, pt, 3, (0, 255, 255), -1) # Yellow dots for tracking anchors
+                cv2.circle(frame, pt, 2, (0, 255, 255), -1) 
+
 
         # Cleanup: Remove IDs that are no longer in the frame
         # This prevents memory leaks in the dictionaries
@@ -631,6 +620,7 @@ def generate_frames():
         for obj_id in list(violated_ids):
             if obj_id not in current_frame_ids:
                 violated_ids.discard(obj_id)
+
         
         
         # Display counts on screen

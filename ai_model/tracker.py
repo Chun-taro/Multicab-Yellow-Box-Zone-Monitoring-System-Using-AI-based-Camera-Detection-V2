@@ -7,29 +7,62 @@ class CentroidTracker:
         self.next_object_id = 0
         self.objects = {}  # Stores {objectID: (centroid, bbox)}
         self.disappeared = {}
+        self.kf_trackers = {} # Stores {objectID: KalmanFilter}
         self.max_disappeared = max_disappeared
         self.max_distance = max_distance  # Maximum distance for matching (pixels)
+
+    def _init_kalman(self, centroid):
+        """Initialize a Kalman Filter for a new object."""
+        # state: [x, y, dx, dy]
+        kf = cv2.KalmanFilter(4, 2)
+        kf.measurementMatrix = np.array([[1,0,0,0], [0,1,0,0]], np.float32)
+        kf.transitionMatrix = np.array([[1,0,1,0], [0,1,0,1], [0,0,1,0], [0,0,0,1]], np.float32)
+        kf.processNoiseCov = np.eye(4, dtype=np.float32) * 0.03
+        
+        # Initial state
+        kf.statePre = np.array([[centroid[0]], [centroid[1]], [0], [0]], np.float32)
+        kf.statePost = np.array([[centroid[0]], [centroid[1]], [0], [0]], np.float32)
+        return kf
 
     def register(self, centroid, bbox):
         self.objects[self.next_object_id] = (centroid, bbox)
         self.disappeared[self.next_object_id] = 0
+        self.kf_trackers[self.next_object_id] = self._init_kalman(centroid)
         self.next_object_id += 1
 
     def deregister(self, object_id):
         del self.objects[object_id]
         del self.disappeared[object_id]
+        if object_id in self.kf_trackers:
+            del self.kf_trackers[object_id]
 
     def _compute_5_points(self, bbox):
         startX, startY, endX, endY = bbox
         return np.array([
             [startX, startY],                           # Top-Left
             [endX, startY],                             # Top-Right
-            [(startX + endX) / 2.0, (startY + endY) / 2.0], # Center
+            [(startX + endX) / 2.0, startY + (endY - startY) * 0.2], # Top-Center (Roof)
             [startX, endY],                             # Bottom-Left
             [endX, endY]                                # Bottom-Right
         ])
 
     def update(self, rects):
+        # 1. Prediction step for all tracked objects
+        for obj_id, kf in self.kf_trackers.items():
+            prediction = kf.predict()
+            
+            # If object is disappeared, update its centroid with prediction
+            if self.disappeared[obj_id] > 0:
+                old_centroid, old_bbox = self.objects[obj_id]
+                new_cx, new_cy = int(prediction[0, 0]), int(prediction[1, 0])
+                
+                # Shift bbox based on prediction movement
+                dx = new_cx - old_centroid[0]
+                dy = new_cy - old_centroid[1]
+                new_bbox = [old_bbox[0] + dx, old_bbox[1] + dy, old_bbox[2] + dx, old_bbox[3] + dy]
+                
+                self.objects[obj_id] = ((new_cx, new_cy), new_bbox)
+
         if len(rects) == 0:
             for object_id in list(self.disappeared.keys()):
                 self.disappeared[object_id] += 1
@@ -87,6 +120,11 @@ class CentroidTracker:
                 # Update with the new centroid and bounding box
                 self.objects[object_id] = (input_centroids[col], rects[col])
                 self.disappeared[object_id] = 0
+                
+                # Kalman Correction step
+                meas = np.array([[input_centroids[col][0]], [input_centroids[col][1]]], np.float32)
+                self.kf_trackers[object_id].correct(meas)
+                
                 used_rows.add(row)
                 used_cols.add(col)
 
@@ -108,3 +146,4 @@ class CentroidTracker:
     def get_current_objects(self):
         """Get current tracked objects without modifying state (useful for frame skipping)."""
         return self.objects
+
