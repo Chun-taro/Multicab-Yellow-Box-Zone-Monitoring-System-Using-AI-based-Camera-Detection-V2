@@ -33,8 +33,18 @@ class CameraHandler:
             cap.release()
         except (ValueError, TypeError):
             # Source is not an integer, try opening as file path
+            import os
+            # Apply FFmpeg optimizations to drastically reduce RTSP latency
+            is_network_stream = str(self.source).startswith(('rtsp://', 'http://', 'https://'))
+            if is_network_stream:
+                os.environ['OPENCV_FFMPEG_CAPTURE_OPTIONS'] = 'fflags;nobuffer|flags;low_delay'
+
             cap = cv2.VideoCapture(self.source)
             if cap.isOpened():
+                if is_network_stream:
+                    # Force OpenCV to keep only the absolute latest frame in buffer
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                
                 self.cap = cap
                 self.use_placeholder = False
                 logging.info("Opened video source %s", self.source)
@@ -76,7 +86,7 @@ class CameraHandler:
         return cv2.resize(frame, (w, h))
 
     def read(self):
-        # If camera failed to open (or read fails), generate a placeholder frame
+        # If camera failed to open (or read fails), generator uses a placeholder frame
         if self.use_placeholder or self.cap is None:
             w = getattr(config, 'FRAME_WIDTH', 640)
             h = getattr(config, 'FRAME_HEIGHT', 480)
@@ -87,9 +97,22 @@ class CameraHandler:
 
         ok, frame = self.cap.read()
         if not ok:
-            logging.warning("Camera read failed; switching to placeholder")
-            self.use_placeholder = True
-            return self.read()
+            logging.warning("Camera read failed; attempting to reconnect...")
+            # Try to reconnect. This prevents permanent lockouts when changing pages
+            if self.open() and self.cap is not None:
+                ok, frame = self.cap.read()
+                if ok:
+                    return ok, frame
+            
+            # If reconnect completely failed, serve a temporary placeholder
+            # DO NOT set self.use_placeholder = True permanently for live camera streams
+            # This way, subsequent frames will keep trying to read
+            w = getattr(config, 'FRAME_WIDTH', 640)
+            h = getattr(config, 'FRAME_HEIGHT', 480)
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            cv2.putText(frame, "Reconnecting stream...", (20, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            return True, frame
+            
         return ok, frame
 
     def close(self):

@@ -13,7 +13,13 @@ setup_logging()
 
 @app.route('/set_camera', methods=['POST'])
 def set_camera():
-    return jsonify({'error': 'camera selection disabled; using camera 1'}), 403
+    data = request.json
+    if not data or 'source' not in data:
+        return jsonify({'error': 'No camera source provided'}), 400
+    
+    config.camera_source = data['source']
+    # You can optionally save to a persistent file here if needed
+    return jsonify({'success': True, 'message': f'Camera source updated to {data["source"]}'})
 
 if __name__ == '__main__':
     # The reloader can cause issues in a multi-threaded app, especially with libraries

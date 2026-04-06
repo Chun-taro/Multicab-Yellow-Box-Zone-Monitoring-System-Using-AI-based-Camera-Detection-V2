@@ -89,7 +89,7 @@ def process_violations(raw_data) -> List[Dict[str, Any]]:
 @dashboard_bp.route('/')
 def dashboard():
     violations = process_violations(db.get_all_violations())
-    return render_template('dashboard.html', violations=violations)
+    return render_template('dashboard.html', violations=violations, current_camera=config.camera_source)
 
 @dashboard_bp.route('/logs')
 def logs():
@@ -105,7 +105,7 @@ def api_recent_violations():
 
 @dashboard_bp.route('/zone_setup')
 def zone_setup():
-    return render_template('zone_setup.html')
+    return render_template('zone_setup.html', current_camera=config.camera_source)
 
 @dashboard_bp.route('/api/wait_for_violation')
 def wait_for_violation():
@@ -152,6 +152,9 @@ def generate_frames():
     except Exception as e:
         detector_error = str(e)
         print(f"Warning: AI Detector failed to load: {e}")
+
+    # Define jpeg_quality early to avoid UnboundLocalError in placeholder code
+    jpeg_quality: int = int(getattr(config, 'JPEG_QUALITY', 70))
 
     # Check if camera opened successfully
     if camera.use_placeholder:
@@ -206,7 +209,18 @@ def generate_frames():
     fps_last_time = time.time()
     fps_current = 0
 
+    # Persisted tracking state for skipped frames
+    current_persons = []
+    person_count = 0
+    vehicle_count = 0
+
     while True:
+        # Check if the camera source was changed from the UI
+        if str(camera.source) != str(config.camera_source):
+            print(f"Camera source changed from {camera.source} to {config.camera_source}. Restarting stream...")
+            camera.source = config.camera_source
+            camera.open()
+
         frame = camera.read_frame()
         if frame is None:
             break
@@ -312,12 +326,7 @@ def generate_frames():
                         continue
                          
                     person_count += 1
-                    current_persons.append((x1, y1, x2, y2, obj_cx, obj_cy))
-                    
-                    # DRAW PERSON: Visual feedback for user
-                    # Cyan color for persons (0, 255, 255) in BGR is Yellow, let's use Magenta/Pink (255, 0, 255) or Green
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 1)
-                    cv2.putText(frame, f"Person {conf:.2f}", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                    current_persons.append((x1, y1, x2, y2, obj_cx, obj_cy, conf))
                     
                     # Store person for later proximity check with vehicles
                     # Will draw if within 1 meter of a multicab (loading/unloading)
@@ -335,8 +344,8 @@ def generate_frames():
         else:
             # Use existing tracked objects when not processing frame
             tracked_objects_map = tracker.get_current_objects()
-            person_count = 0
-            vehicle_count = 0
+            # We explicitly DO NOT reset person_count or vehicle_count here 
+            # so the text/boxes don't flicker on skipped frames.
         
         current_frame_ids = set()
         
@@ -425,7 +434,10 @@ def generate_frames():
             # vehicle_loading_status tracks {obj_id: last_loading_timestamp}
             
             if current_persons:
-                for px1, py1, px2, py2, pcx, pcy in current_persons:
+                for person_data in current_persons:
+                    # Unpack with support for the new appended conf value
+                    px1, py1, px2, py2, pcx, pcy = person_data[:6]
+                    
                     # ONLY consider people on the RIGHT side of the vehicle's center
                     # because the real sidewalk is on the right. People on the left are in the street.
                     if pcx > stable_cx:
@@ -621,7 +633,12 @@ def generate_frames():
             if obj_id not in current_frame_ids:
                 violated_ids.discard(obj_id)
 
-        
+        # Draw persons on every frame (preventing flicker on skipped frames)
+        for person_data in current_persons:
+            px1, py1, px2, py2, pcx, pcy = person_data[:6]
+            pconf = person_data[6] if len(person_data) > 6 else 0.0
+            cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 255, 0), 1)
+            cv2.putText(frame, f"Person {pconf:.2f}", (px1, py1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
         
         # Display counts on screen
         cv2.putText(frame, f"People: {person_count} Vehicles: {vehicle_count}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)

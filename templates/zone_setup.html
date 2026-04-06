@@ -14,8 +14,19 @@
 </script>
 
 <div class="card">
-    <div class="card-header" style="flex-wrap: wrap; gap:1rem;">
-        <span><i class="fas fa-draw-polygon"></i> Draw Yellow Box Zone</span>
+    <div class="card-header" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap:1rem;">
+        <span style="display: flex; align-items: center; gap: 1rem;">
+            <span><i class="fas fa-draw-polygon"></i> Draw Yellow Box Zone</span>
+            <select id="camera-select" onchange="changeCamera(this.value)" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color, #1e293b); color: inherit; outline: none; font-size: 0.9rem;">
+                <option value="0" {% if current_camera|string == '0' %}selected{% endif %}>Default Camera (0)</option>
+                <option value="1" {% if current_camera|string == '1' %}selected{% endif %}>External / OBS (1)</option>
+                <option value="rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1" {% if current_camera|string == 'rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1' %}selected{% endif %}>CCTV Camera (RTSP)</option>
+                <option value="camera/test_video.mp4" {% if current_camera|string == 'camera/test_video.mp4' %}selected{% endif %}>Test Video 1</option>
+                <option value="camera/test_video2.mp4" {% if current_camera|string == 'camera/test_video2.mp4' %}selected{% endif %}>Test Video 2</option>
+                <option value="camera/test_video3.mp4" {% if current_camera|string == 'camera/test_video3.mp4' %}selected{% endif %}>Test Video 3</option>
+                <option value="camera/test_video5.mp4" {% if current_camera|string == 'camera/test_video5.mp4' %}selected{% endif %}>Test Video 5</option>
+            </select>
+        </span>
         <div class="header-controls" style="display: flex; align-items: center; gap: 1rem;">
             <span id="point-count"
                 style="font-size: 0.9rem; font-weight: 500; font-family: 'Outfit', sans-serif;">Points: 0/4</span>
@@ -34,9 +45,13 @@
         </div>
 
         <div class="video-container"
-            style="position: relative; border-radius:8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width:100%; max-width: 800px; aspect-ratio: auto; height:auto;">
-            <img id="video-feed" src="{{ url_for('dashboard.video_feed') }}" alt="Live Video Feed"
+            style="position: relative; border-radius:8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); width:100%; max-width: 1000px; aspect-ratio: auto; height:auto;">
+            <img id="video-feed" alt="Live Video Feed"
                 style="display: block; width: 100%; height: auto; cursor: crosshair; object-fit: contain;">
+            <script>
+                // Force fresh connection to avoid stalled video streams on page change
+                document.getElementById('video-feed').src = "{{ url_for('dashboard.video_feed') }}?t=" + new Date().getTime();
+            </script>
             <canvas id="zone-canvas"
                 style="position: absolute; top: 0; left: 0; width:100%; height:100%; pointer-events: none;"></canvas>
         </div>
@@ -158,6 +173,27 @@
                 console.error(err);
                 alert("Failed to save zone.");
             });
+    }
+
+    function changeCamera(source) {
+        fetch('/set_camera', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: source })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Camera changed successfully:', data);
+            } else {
+                console.error('Error changing camera:', data.error);
+                alert('Failed to change camera: ' + data.error);
+            }
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+            alert('Failed to change camera (network error)');
+        });
     }
 
     window.addEventListener('resize', resizeCanvas);

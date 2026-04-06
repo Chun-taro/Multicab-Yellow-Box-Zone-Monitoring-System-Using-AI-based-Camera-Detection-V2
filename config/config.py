@@ -8,7 +8,7 @@ class Config:
     # Camera settings
     # Use environment variable for camera source if available, otherwise use default.
     # Example: export CAMERA_SOURCE=0 for a webcam
-    camera_source = os.getenv('CAMERA_SOURCE', os.path.join(BASE_DIR, 'camera', 'test_video5.mp4'))
+    camera_source = os.getenv('CAMERA_SOURCE', os.path.join(BASE_DIR, 'camera', '0'))
   
     FRAME_WIDTH = 1440
     FRAME_HEIGHT = 900

@@ -17,12 +17,25 @@
     <!-- Camera Feed -->
     <div class="grid-col-video">
         <div class="card">
-            <div class="card-header">
-                <span><i class="fas fa-camera"></i> Camera Feed 01</span>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                <span><i class="fas fa-camera"></i> Live Feed</span>
+                <select id="camera-select" onchange="changeCamera(this.value)" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color, #1e293b); color: inherit; outline: none; font-size: 0.9rem;">
+                    <option value="0" {% if current_camera|string == '0' %}selected{% endif %}>Default Camera (0)</option>
+                    <option value="1" {% if current_camera|string == '1' %}selected{% endif %}>External / OBS (1)</option>
+                    <option value="rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1" {% if current_camera|string == 'rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1' %}selected{% endif %}>CCTV Camera (RTSP)</option>
+                    <option value="camera/test_video.mp4" {% if current_camera|string == 'camera/test_video.mp4' %}selected{% endif %}>Test Video 1</option>
+                    <option value="camera/test_video2.mp4" {% if current_camera|string == 'camera/test_video2.mp4' %}selected{% endif %}>Test Video 2</option>
+                    <option value="camera/test_video3.mp4" {% if current_camera|string == 'camera/test_video3.mp4' %}selected{% endif %}>Test Video 3</option>
+                    <option value="camera/test_video5.mp4" {% if current_camera|string == 'camera/test_video5.mp4' %}selected{% endif %}>Test Video 5</option>
+                </select>
             </div>
             <div class="card-body no-padding">
                 <div class="video-container">
-                    <img src="{{ url_for('dashboard.video_feed') }}" alt="Live Video Feed" class="video-feed">
+                    <img id="main-video-feed" alt="Live Video Feed" class="video-feed" src="{{ url_for('dashboard.video_feed') }}">
+                    <script>
+                        // Force fresh connection to avoid stalled video streams on page change
+                        document.getElementById('main-video-feed').src = "{{ url_for('dashboard.video_feed') }}?t=" + new Date().getTime();
+                    </script>
                 </div>
             </div>
         </div>
@@ -126,5 +139,28 @@
     }
 
     document.addEventListener('DOMContentLoaded', pollForViolations);
+
+    function changeCamera(source) {
+        fetch('/set_camera', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ source: source })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('Camera changed successfully:', data);
+            } else {
+                console.error('Error changing camera:', data.error);
+                alert('Failed to change camera: ' + data.error);
+            }
+        })
+        .catch((error) => {
+            console.error('Error:', error);
+            alert('Failed to change camera (network error)');
+        });
+    }
 </script>
 {% endblock %}
