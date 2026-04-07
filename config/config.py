@@ -8,10 +8,10 @@ class Config:
     # Camera settings
     # Use environment variable for camera source if available, otherwise use default.
     # Example: export CAMERA_SOURCE=0 for a webcam
-    camera_source = os.getenv('CAMERA_SOURCE', os.path.join(BASE_DIR, 'camera', '0'))
+    camera_source = os.getenv('CAMERA_SOURCE', 'rtsp://admin123:admin123@192.168.100.207:554/stream1')
   
-    FRAME_WIDTH = 1440
-    FRAME_HEIGHT = 900
+    FRAME_WIDTH = 1280
+    FRAME_HEIGHT = 720
     FPS = 30
 
     # Detection settings
@@ -71,7 +71,7 @@ class Config:
     # Tip: Higher frame skip = faster apparent FPS output but less frequent 'AI brain' updates
     # Current: 3 = AI runs every 3rd frame for better streaming FPS on lower-end hardware
     
-    JPEG_QUALITY = 70  # JPEG quality (1-100, lower=faster+smaller, higher=better quality)
+    JPEG_QUALITY = 60  # Optimized for faster streaming
     # Current: 70 = High quality streaming for clear vehicle detection
     # For ultra-high quality, increase to 80-90. For faster, use 50-60.
 

@@ -300,6 +300,18 @@ class Database:
         
         return cursor.fetchall()
 
+    def get_daily_trend(self, limit=7):
+        """Get violation counts for the last N days."""
+        query = '''
+        SELECT DATE(violation_timestamp) as date, COUNT(*) as count
+        FROM violations
+        GROUP BY DATE(violation_timestamp)
+        ORDER BY date DESC
+        LIMIT ?
+        '''
+        cursor = self.conn.execute(query, (limit,))
+        return cursor.fetchall()
+
     def record_detection(self, tracking_id, vehicle_type, centroid_x, centroid_y,
                         confidence, is_in_zone, is_stopped, frame_id=None, zone_id=1):
         """

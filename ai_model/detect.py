@@ -16,7 +16,8 @@ class VehicleDetector:
         # The model handles preprocessing (resizing, normalization) and NMS internally.
         # 'verbose=False' prevents printing detection details to the console on every frame.
         # 'iou=0.75' allows higher overlap between boxes before suppression, helping with occluded vehicles.
-        results = self.model(frame, conf=self.conf_thres, iou=0.75, verbose=False)
+        # 'imgsz=640' ensures the model runs at its optimized native resolution regardless of input size.
+        results = self.model(frame, conf=self.conf_thres, iou=0.75, verbose=False, imgsz=640)
 
         detections = []
         # The result object contains detections for the single frame.

@@ -87,9 +87,35 @@ def process_violations(raw_data) -> List[Dict[str, Any]]:
     return processed
 
 @dashboard_bp.route('/')
+def landing():
+    """System Landing Page"""
+    total_violations = len(db.get_all_violations())
+    return render_template('landing.html', total_violations=total_violations)
+
+@dashboard_bp.route('/dashboard')
 def dashboard():
+    """Real-time monitoring dashboard"""
     violations = process_violations(db.get_all_violations())
     return render_template('dashboard.html', violations=violations, current_camera=config.camera_source)
+
+@dashboard_bp.route('/reports')
+def reports():
+    """Analytics and Reports"""
+    # Get stats for charts
+    by_type = db.count_violations_by_type()
+    by_type_data = { (row[0] if row[0] is not None else "Unknown"): row[1] for row in by_type }
+    
+    daily_trend = db.get_daily_trend(7)
+    trend_labels = [row[0] for row in reversed(daily_trend)]
+    trend_values = [row[1] for row in reversed(daily_trend)]
+    
+    total_violations = sum(by_type_data.values())
+    
+    return render_template('reports.html', 
+                         by_type_data=by_type_data,
+                         trend_labels=trend_labels,
+                         trend_values=trend_values,
+                         total_violations=total_violations)
 
 @dashboard_bp.route('/logs')
 def logs():
@@ -648,9 +674,12 @@ def generate_frames():
             cv2.putText(frame, "AI Error: " + detector_error, (10, 30), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
-        # Display FPS on frame
-        cv2.putText(frame, f"FPS: {fps_current}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        # --- ENHANCED FPS DISPLAY (Bottom Left) ---
+        h_fps, w_fps = frame.shape[:2]
+        cv2.rectangle(frame, (5, h_fps - 40), (120, h_fps - 5), (0, 0, 0), -1)
+        cv2.rectangle(frame, (5, h_fps - 40), (120, h_fps - 5), (0, 255, 0), 1)
+        cv2.putText(frame, f"AI FPS: {fps_current}", (15, h_fps - 15), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
         # --- OPTIMIZED JPEG ENCODING ---
         # Use quality setting to balance speed and image quality

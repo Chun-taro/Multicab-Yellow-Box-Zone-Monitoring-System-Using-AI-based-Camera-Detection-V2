@@ -110,7 +110,7 @@
     <!-- Persistent Sidebar -->
     <aside class="sidebar" id="sidebar-drawer">
         <button class="close-drawer" onclick="closeDrawer()"><i class="fas fa-times"></i></button>
-        <div class="brand">
+        <div class="brand" style="cursor: pointer;" onclick="window.location.href='{{ url_for('dashboard.landing') }}'">
             <i class="fas fa-video"></i>
             <span>TrafficAI</span>
         </div>
@@ -121,6 +121,14 @@
                     onclick="closeDrawer()">
                     <i class="fas fa-chart-line"></i>
                     <span>Live Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="{{ url_for('dashboard.reports') }}"
+                    class="nav-link {% if request.endpoint == 'dashboard.reports' %}active{% endif %}"
+                    onclick="closeDrawer()">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Reports & Analytics</span>
                 </a>
             </li>
             <li>
