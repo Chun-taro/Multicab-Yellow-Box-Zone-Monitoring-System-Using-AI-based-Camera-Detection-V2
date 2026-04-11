@@ -15,9 +15,10 @@ class VehicleDetector:
         # Inference with YOLOv8
         # The model handles preprocessing (resizing, normalization) and NMS internally.
         # 'verbose=False' prevents printing detection details to the console on every frame.
-        # 'iou=0.75' allows higher overlap between boxes before suppression, helping with occluded vehicles.
-        # 'imgsz=640' ensures the model runs at its optimized native resolution regardless of input size.
-        results = self.model(frame, conf=self.conf_thres, iou=0.75, verbose=False, imgsz=640)
+        # 'iou=0.3' reduces overlapping boxes by suppressing detections with more than 30% overlap.
+        # 'agnostic_nms=True' ensures that overlapping boxes of DIFFERENT classes are also suppressed.
+        # This prevents the "doubled square" issue (e.g. car and truck detected on same spot).
+        results = self.model(frame, conf=self.conf_thres, iou=0.3, agnostic_nms=True, verbose=False, imgsz=640)
 
         detections = []
         # The result object contains detections for the single frame.

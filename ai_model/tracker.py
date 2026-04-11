@@ -41,7 +41,7 @@ class CentroidTracker:
         return np.array([
             [startX, startY],                           # Top-Left
             [endX, startY],                             # Top-Right
-            [(startX + endX) / 2.0, startY + (endY - startY) * 0.2], # Top-Center (Roof)
+            [(startX + endX) / 2.0, (startY + endY) / 2.0], # Center point
             [startX, endY],                             # Bottom-Left
             [endX, endY]                                # Bottom-Right
         ])
@@ -73,7 +73,7 @@ class CentroidTracker:
         input_centroids = np.zeros((len(rects), 2), dtype="int")
         for (i, (startX, startY, endX, endY)) in enumerate(rects):
             cX = int((startX + endX) / 2.0)
-            cY = int(startY + (endY - startY) * 0.2)
+            cY = int((startY + endY) / 2.0)
             input_centroids[i] = (cX, cY)
 
         if len(self.objects) == 0:
@@ -141,9 +141,9 @@ class CentroidTracker:
                 for col in unused_cols:
                     self.register(input_centroids[col], rects[col])
 
-        return self.objects
+        return self.objects.copy()
 
     def get_current_objects(self):
         """Get current tracked objects without modifying state (useful for frame skipping)."""
-        return self.objects
+        return self.objects.copy()
 

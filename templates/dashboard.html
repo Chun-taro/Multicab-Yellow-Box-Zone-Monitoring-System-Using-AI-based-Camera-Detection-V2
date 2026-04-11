@@ -22,7 +22,7 @@
                 <select id="camera-select" onchange="changeCamera(this.value)" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-color, #1e293b); color: inherit; outline: none; font-size: 0.9rem;">
                     <option value="0" {% if current_camera|string == '0' %}selected{% endif %}>Default Camera (0)</option>
                     <option value="1" {% if current_camera|string == '1' %}selected{% endif %}>External / OBS (1)</option>
-                    <option value="rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1" {% if current_camera|string == 'rtsp://Chun-taro:chuntaro043004@192.168.100.203/stream1' %}selected{% endif %}>CCTV Camera (RTSP)</option>
+                    <option value="rtsp://admin123:admin123@192.168.100.207:554/stream1" {% if current_camera|string == 'rtsp://admin123:admin123@192.168.100.207:554/stream1' %}selected{% endif %}>CCTV Camera (RTSP)</option>
                     <option value="camera/test_video.mp4" {% if current_camera|string == 'camera/test_video.mp4' %}selected{% endif %}>Test Video 1</option>
                     <option value="camera/test_video2.mp4" {% if current_camera|string == 'camera/test_video2.mp4' %}selected{% endif %}>Test Video 2</option>
                     <option value="camera/test_video3.mp4" {% if current_camera|string == 'camera/test_video3.mp4' %}selected{% endif %}>Test Video 3</option>
