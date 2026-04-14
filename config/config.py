@@ -8,7 +8,7 @@ class Config:
     # Camera settings
     # Use environment variable for camera source if available, otherwise use default.
     # Example: export CAMERA_SOURCE=0 for a webcam
-    camera_source = os.getenv('CAMERA_SOURCE', 'rtsp://admin123:admin123@192.168.100.207:554/stream1')
+    camera_source = os.getenv('CAMERA_SOURCE', 'camera/test_video5.mp4')
   
     FRAME_WIDTH = 1280
     FRAME_HEIGHT = 720

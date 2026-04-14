@@ -94,11 +94,12 @@
             background: var(--bg-panel);
             border: 1px solid var(--border-color);
             border-radius: var(--border-radius);
-            padding: 24px;
-            width: 90%;
-            max-width: 900px;
+            padding: 0;
+            width: 98%;
+            max-width: 1600px;
             position: relative;
             text-align: center;
+            overflow: hidden;
         }
     </style>
 </head>
@@ -178,19 +179,14 @@
         </div>
     </div>
 
-    <!-- Global Image Modal -->
     <div id="globalImageModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content" style="padding:0; border:none; background:transparent;">
             <button class="close-modal" aria-label="Close Modal" onclick="closeGlobalModal()"
-                style="position: absolute; right: 20px; top: 20px; background: none; border:none; color:white; font-size:24px; cursor:pointer;"><i
-                    class="fas fa-times"></i></button>
-            <h2 style="font-family: 'Outfit', sans-serif; color:white; margin-bottom:1rem;">Violation Evidence</h2>
-            <!-- Wrapper for glow effect -->
-            <div
-                style="padding: 4px; background: linear-gradient(135deg, rgba(239, 68, 68, 0.4), transparent); border-radius: 12px; display: inline-block;">
-                <img id="globalModalImage" class="modal-image" src="" alt="Violation Evidence"
-                    style="display: block; max-height: 70vh; max-width:100%;">
-            </div>
+                style="position: fixed; right: 30px; top: 30px; background: rgba(0,0,0,0.5); border:none; color:white; font-size:32px; cursor:pointer; z-index: 10001; width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+                <i class="fas fa-times"></i>
+            </button>
+            <img id="globalModalImage" class="modal-image" src="" alt="Violation Evidence"
+                style="display: block; width: 100%; height: auto; max-height: 98vh; object-fit: contain; border-radius: 4px;">
         </div>
     </div>
 
