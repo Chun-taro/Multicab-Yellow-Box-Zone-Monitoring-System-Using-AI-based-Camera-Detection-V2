@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-background text-white antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+.glass {
+  @apply bg-panel backdrop-blur-glass border border-white/10;
+}
+
+.glass-header {
+  @apply bg-[#121826]/95 backdrop-blur-glass border-b border-white/5;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-white/20;
+}

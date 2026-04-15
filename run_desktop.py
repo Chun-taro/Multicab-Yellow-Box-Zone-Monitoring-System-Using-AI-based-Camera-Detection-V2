@@ -33,7 +33,7 @@ if __name__ == '__main__':
     # Create the native desktop window
     webview.create_window(
         config.WINDOW_TITLE,
-        f'http://{config.HOST}:{config.PORT}',
+        'http://localhost:5173',
         width=config.FRAME_WIDTH,
         height=config.FRAME_HEIGHT
     )

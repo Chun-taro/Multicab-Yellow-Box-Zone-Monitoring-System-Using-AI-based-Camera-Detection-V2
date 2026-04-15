@@ -216,6 +216,19 @@ class Database:
         cursor = self.conn.execute(query)
         return cursor.fetchall()
 
+    def get_violations_by_range(self, start_date, end_date):
+        """Get violations within a date range (inclusive). Dates formatted as YYYY-MM-DD."""
+        query = '''
+        SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label, 
+               v.image_path, v.stop_duration, v.confidence, v.status
+        FROM violations v
+        LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
+        WHERE DATE(v.violation_timestamp) BETWEEN ? AND ?
+        ORDER BY v.violation_timestamp DESC
+        '''
+        cursor = self.conn.execute(query, (start_date, end_date))
+        return cursor.fetchall()
+
     def get_violations_by_date(self, date):
         """Get violations for a specific date (YYYY-MM-DD)."""
         query = '''

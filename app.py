@@ -1,13 +1,22 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from routes.dashboard_routes import dashboard_bp
 from routes.api_routes import api_bp
 from app_utils.helpers import setup_logging
 import threading
+import os
 from config.config import config
 
+from flask_cors import CORS
+
 app = Flask(__name__)
+CORS(app) # Enable CORS for all routes
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(api_bp, url_prefix='/api')
+
+@app.route('/violations/<path:filename>')
+def serve_violations(filename):
+    """Serve violation images from the static/violations directory."""
+    return send_from_directory(os.path.join('static', 'violations'), filename)
 
 setup_logging()
 

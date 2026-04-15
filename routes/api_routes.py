@@ -5,9 +5,21 @@ api_bp = Blueprint('api', __name__)
 
 @api_bp.route('/violations')
 def get_violations():
+    from flask import request
     db = Database()
-    violations = db.get_all_violations()
+    
+    start_date = request.args.get('start')
+    end_date = request.args.get('end')
+    
+    if start_date and end_date:
+        raw_violations = db.get_violations_by_range(start_date, end_date)
+    else:
+        raw_violations = db.get_all_violations()
+        
     db.close()
+    
+    # Convert sqlite3.Row objects to dictionaries for JSON serialization
+    violations = [dict(row) for row in raw_violations]
     return jsonify(violations)
 
 @api_bp.route('/zone', methods=['POST'])

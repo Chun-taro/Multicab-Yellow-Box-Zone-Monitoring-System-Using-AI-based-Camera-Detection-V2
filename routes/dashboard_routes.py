@@ -129,6 +129,39 @@ def api_recent_violations():
     # Use itertools.islice for safe slicing that satisfies strict type checkers
     return jsonify(list(itertools.islice(all_violations, 10)))
 
+@dashboard_bp.route('/api/stats')
+def api_stats():
+    """Analytics and Reports Data"""
+    # Get stats for charts
+    by_type = db.count_violations_by_type()
+    by_type_data = { (row[0] if row[0] is not None else "Unknown"): row[1] for row in by_type }
+    
+    daily_trend = db.get_daily_trend(7)
+    trend_data = []
+    for row in reversed(daily_trend):
+        trend_data.append({
+            'date': row[0],
+            'count': row[1]
+        })
+    
+    total_violations = sum(by_type_data.values())
+    
+    return jsonify({
+        'by_type': by_type_data,
+        'trend': trend_data,
+        'total_violations': total_violations
+    })
+
+@dashboard_bp.route('/api/config')
+def api_config():
+    """System Configuration Data"""
+    return jsonify({
+        'camera_source': config.camera_source,
+        'model_path': config.MODEL_PATH,
+        'confidence_threshold': config.CONFIDENCE_THRESHOLD,
+        'yellow_box_zone': config.YELLOW_BOX_ZONE
+    })
+
 @dashboard_bp.route('/zone_setup')
 def zone_setup():
     return render_template('zone_setup.html', current_camera=config.camera_source)
