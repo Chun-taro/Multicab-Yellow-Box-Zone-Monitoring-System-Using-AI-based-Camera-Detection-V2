@@ -1,5 +1,7 @@
 # Web Framework
 Flask==2.3.3
+flask-cors
+easyocr
 
 # Computer Vision & AI
 opencv-python==4.10.0.84

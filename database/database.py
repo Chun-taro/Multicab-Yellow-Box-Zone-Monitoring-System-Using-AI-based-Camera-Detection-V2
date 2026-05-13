@@ -23,11 +23,10 @@ class Database:
     def migrate_schema(self):
         """Migrate from old schema to new schema if needed."""
         try:
-            # Check if old violations table exists with old schema
             cursor = self.conn.execute("PRAGMA table_info(violations)")
             columns = {row[1] for row in cursor.fetchall()}
             
-            # If old schema detected, rename and recreate
+            # Migrate from very old schema
             if 'timestamp' in columns and 'violation_timestamp' not in columns:
                 print("Detected old database schema. Migrating...")
                 try:
@@ -37,8 +36,17 @@ class Database:
                 except Exception as e:
                     print(f"Note: {e}")
                     self.conn.rollback()
-        except Exception as e:
-            # Table might not exist yet, which is fine
+
+            # Add plate_number column if it doesn't exist yet
+            if columns and 'plate_number' not in columns:
+                try:
+                    self.conn.execute("ALTER TABLE violations ADD COLUMN plate_number TEXT DEFAULT NULL")
+                    self.conn.commit()
+                    print("✓ Migrated: Added plate_number column to violations table.")
+                except Exception as e:
+                    print(f"Note: plate_number migration: {e}")
+                    self.conn.rollback()
+        except Exception:
             pass
 
     def create_tables(self):
@@ -75,6 +83,7 @@ class Database:
                 vehicle_type_id INTEGER,
                 zone_id INTEGER DEFAULT 1,
                 stop_duration REAL,
+                plate_number TEXT DEFAULT NULL,
                 image_path TEXT,
                 image_blob BLOB,
                 confidence REAL DEFAULT 0.0,
@@ -174,33 +183,20 @@ class Database:
         row = cursor.fetchone()
         return row[0] if row else None
 
-    def insert_violation(self, vehicle_type, timestamp, image_path, image_blob=None, 
-                        detection_id=None, stop_duration=None, confidence=0.0, notes=None, zone_id=1):
-        """
-        Insert a new violation record.
-        
-        Args:
-            vehicle_type (str): Type of vehicle (car, truck, bus, motorcycle)
-            timestamp (str): Violation timestamp (YYYY-MM-DD HH:MM:SS)
-            image_path (str): Path to violation image
-            image_blob (bytes): Optional binary image data
-            detection_id (str): Optional detection identifier
-            stop_duration (float): Optional duration vehicle was stopped
-            confidence (float): YOLOv8 detection confidence (0.0-1.0)
-            notes (str): Optional additional notes
-            zone_id (int): Zone ID (default: 1)
-        """
+    def insert_violation(self, vehicle_type, timestamp, image_path, image_blob=None,
+                        detection_id=None, stop_duration=None, confidence=0.0,
+                        notes=None, zone_id=1, plate_number=None):
         vehicle_type_id = self.get_vehicle_type_id(vehicle_type)
         
         query = '''
         INSERT INTO violations 
         (vehicle_type_id, violation_timestamp, image_path, image_blob, 
-         detection_id, stop_duration, confidence, notes, zone_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         detection_id, stop_duration, confidence, notes, zone_id, plate_number)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         self.conn.execute(query, (
             vehicle_type_id, timestamp, image_path, image_blob,
-            detection_id, stop_duration, confidence, notes, zone_id
+            detection_id, stop_duration, confidence, notes, zone_id, plate_number
         ))
         self.conn.commit()
 
@@ -208,7 +204,7 @@ class Database:
         """Get all violations ordered by timestamp (newest first)."""
         query = '''
         SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label, 
-               v.image_path, v.stop_duration, v.confidence, v.status
+               v.image_path, v.stop_duration, v.confidence, v.status, v.plate_number
         FROM violations v
         LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
         ORDER BY v.violation_timestamp DESC
@@ -220,7 +216,7 @@ class Database:
         """Get violations within a date range (inclusive). Dates formatted as YYYY-MM-DD."""
         query = '''
         SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label, 
-               v.image_path, v.stop_duration, v.confidence, v.status
+               v.image_path, v.stop_duration, v.confidence, v.status, v.plate_number
         FROM violations v
         LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
         WHERE DATE(v.violation_timestamp) BETWEEN ? AND ?

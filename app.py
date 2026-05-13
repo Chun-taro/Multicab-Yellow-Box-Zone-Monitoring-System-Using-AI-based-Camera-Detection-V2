@@ -1,17 +1,35 @@
 from flask import Flask, request, jsonify, send_from_directory
 from routes.dashboard_routes import dashboard_bp
 from routes.api_routes import api_bp
-from app_utils.helpers import setup_logging
+from utils.helpers import setup_logging
 import threading
 import os
 from config.config import config
 
 from flask_cors import CORS
 
-app = Flask(__name__)
+app = Flask(__name__, 
+            static_folder=os.path.join(os.getcwd(), 'frontend/dist'),
+            static_url_path='',
+            template_folder=os.path.join(os.getcwd(), 'frontend/dist'))
 CORS(app) # Enable CORS for all routes
 app.register_blueprint(dashboard_bp)
 app.register_blueprint(api_bp, url_prefix='/api')
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react(path):
+    """Serve static files if they exist."""
+    static_dir = os.path.join(os.getcwd(), app.static_folder)
+    if path != "" and os.path.exists(os.path.join(static_dir, path)):
+        return send_from_directory(static_dir, path)
+    return send_from_directory(static_dir, 'index.html')
+
+@app.errorhandler(404)
+def handle_404(e):
+    """Fallback for any 404 to support React Router (SPA)."""
+    static_dir = os.path.join(os.getcwd(), app.static_folder)
+    return send_from_directory(static_dir, 'index.html')
 
 @app.route('/violations/<path:filename>')
 def serve_violations(filename):

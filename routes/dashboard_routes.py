@@ -6,7 +6,7 @@ if __name__ == "__main__":
 
 from flask import Blueprint, render_template, Response, request, redirect, url_for, jsonify
 from database.database import Database
-from app_utils.camera import CameraHandler
+from utils.camera import CameraHandler
 from config.config import config
 import cv2
 import numpy as np
@@ -29,8 +29,8 @@ dashboard_bp = Blueprint('dashboard', __name__)
 db = Database()
 camera_source = 1  # Default to OBS
 
-# Global event to signal new violations for long polling (Moved to app_utils/events.py)
-from app_utils.events import new_violation_event
+# Global event to signal new violations for long polling (Moved to utils/events.py)
+from utils.events import new_violation_event
 
 # Person tracking dictionaries (for detecting load/unload operations)
 person_bboxes = {}  # {frame_num: [(x1, y1, x2, y2, centroid_x, centroid_y), ...]}
@@ -86,41 +86,9 @@ def process_violations(raw_data) -> List[Dict[str, Any]]:
         processed.append(item)
     return processed
 
-@dashboard_bp.route('/')
-def landing():
-    """System Landing Page"""
-    total_violations = len(db.get_all_violations())
-    return render_template('landing.html', total_violations=total_violations)
 
-@dashboard_bp.route('/dashboard')
-def dashboard():
-    """Real-time monitoring dashboard"""
-    violations = process_violations(db.get_all_violations())
-    return render_template('dashboard.html', violations=violations, current_camera=config.camera_source)
 
-@dashboard_bp.route('/reports')
-def reports():
-    """Analytics and Reports"""
-    # Get stats for charts
-    by_type = db.count_violations_by_type()
-    by_type_data = { (row[0] if row[0] is not None else "Unknown"): row[1] for row in by_type }
-    
-    daily_trend = db.get_daily_trend(7)
-    trend_labels = [row[0] for row in reversed(daily_trend)]
-    trend_values = [row[1] for row in reversed(daily_trend)]
-    
-    total_violations = sum(by_type_data.values())
-    
-    return render_template('reports.html', 
-                         by_type_data=by_type_data,
-                         trend_labels=trend_labels,
-                         trend_values=trend_values,
-                         total_violations=total_violations)
 
-@dashboard_bp.route('/logs')
-def logs():
-    violations = process_violations(db.get_all_violations())
-    return render_template('logs.html', violations=violations)
 
 @dashboard_bp.route('/api/recent_violations')
 def api_recent_violations():
@@ -162,9 +130,6 @@ def api_config():
         'yellow_box_zone': config.YELLOW_BOX_ZONE
     })
 
-@dashboard_bp.route('/zone_setup')
-def zone_setup():
-    return render_template('zone_setup.html', current_camera=config.camera_source)
 
 @dashboard_bp.route('/api/wait_for_violation')
 def wait_for_violation():
@@ -203,7 +168,7 @@ def get_detector():
 from ai_model.tracker import CentroidTracker
 
 # Import the singleton monitoring service
-from app_utils.monitoring_service import monitoring_service
+from utils.monitoring_service import monitoring_service
 
 def generate_frames():
     """

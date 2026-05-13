@@ -241,14 +241,27 @@ export function Reports() {
       </AnimatePresence>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard title="Daily Peak" value={`${trendData.reduce((max, p) => p.violations > max ? p.violations : max, 0)} Violations`} icon={TrendingUp} color="primary" trend={5} />
+        <StatCard title="Daily Peak" value={`${trendData.reduce((max, p) => p.violations > max ? p.violations : max, 0)} Violations`} icon={TrendingUp} color="primary" />
         <StatCard title="Most Common" value={pieData[0]?.name || "N/A"} icon={PieIcon} color="warning" />
         <StatCard title="Reporting Period" value="Last 7 Days" icon={Calendar} color="accent" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Main Trend Chart */}
-        <div className="lg:col-span-8 glass p-8 rounded-[2.5rem] min-h-[450px]">
+      {loading ? (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-8 glass p-8 rounded-[2.5rem] min-h-[450px] flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3 text-muted">
+              <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+              <p className="text-sm font-medium">Loading chart data...</p>
+            </div>
+          </div>
+          <div className="lg:col-span-4 glass p-8 rounded-[2.5rem] min-h-[450px] flex items-center justify-center">
+            <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Main Trend Chart */}
+          <div className="lg:col-span-8 glass p-8 rounded-[2.5rem] min-h-[450px]">
           <div className="flex justify-between items-center mb-10">
             <h3 className="text-xl font-bold">Violation Frequency</h3>
             <select className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm outline-none">
@@ -311,7 +324,7 @@ export function Reports() {
                   paddingAngle={8}
                   dataKey="value"
                 >
-                  {pieData.map((entry, index) => (
+                  {(pieData || []).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} cornerRadius={10} />
                   ))}
                 </Pie>
@@ -321,8 +334,8 @@ export function Reports() {
           </div>
 
           <div className="space-y-3 mt-6">
-            {pieData.slice(0, 4).map((entry, index) => (
-              <div key={entry.name} className="flex justify-between items-center p-3 rounded-2xl bg-white/5 border border-white/5">
+            {(pieData || []).slice(0, 4).map((entry, index) => (
+              <div key={entry.name || index} className="flex justify-between items-center p-3 rounded-2xl bg-white/5 border border-white/5">
                 <div className="flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
                   <span className="text-sm font-medium">{entry.name}</span>
@@ -332,9 +345,10 @@ export function Reports() {
             ))}
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* New Violation Records Table - "Document List" */}
+      {/* Violation Records Table */}
       <div className="glass p-10 rounded-[2.5rem]">
         <div className="flex justify-between items-center mb-10">
           <div>
@@ -349,6 +363,7 @@ export function Reports() {
               <tr className="text-muted text-xs uppercase tracking-widest border-b border-white/5">
                 <th className="pb-6 px-4">ID</th>
                 <th className="pb-6 px-4">Vehicle Type</th>
+                <th className="pb-6 px-4">Plate No.</th>
                 <th className="pb-6 px-4">Timestamp</th>
                 <th className="pb-6 px-4">Stop Duration</th>
                 <th className="pb-6 px-4">Status</th>
@@ -356,11 +371,20 @@ export function Reports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
-              {violations.map((v) => (
-                <tr key={v.id} className="group hover:bg-white/[0.02] transition-colors">
+              {(violations || []).map((v, index) => (
+                <tr key={v.id || index} className="group hover:bg-white/[0.02] transition-colors">
                   <td className="py-6 px-4 text-sm font-medium text-muted">#{v.id}</td>
                   <td className="py-6 px-4">
                     <span className="capitalize font-bold text-white">{v.label}</span>
+                  </td>
+                  <td className="py-6 px-4">
+                    {v.plate_number ? (
+                      <span className="text-xs font-black tracking-widest text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded border border-emerald-400/20">
+                        {v.plate_number}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-white/20">—</span>
+                    )}
                   </td>
                   <td className="py-6 px-4 text-sm text-neutral-400">
                     {new Date(v.timestamp || v.violation_timestamp).toLocaleString()}

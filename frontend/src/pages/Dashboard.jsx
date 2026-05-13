@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { StatCard } from '../components/StatCard';
 import { VideoFeed } from '../components/VideoFeed';
 import { ViolationList } from '../components/ViolationList';
-import { Shield, Camera, AlertTriangle, Activity, X, ExternalLink, Calendar } from 'lucide-react';
+import { AlertTriangle, Camera, X, ExternalLink, Calendar, Activity } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
@@ -13,111 +13,164 @@ export function Dashboard() {
   const [stats, setStats] = useState({ total_violations: 0 });
   const [selectedViolation, setSelectedViolation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [cameraConfig, setCameraConfig] = useState({ camera_source: '0' });
+  const [isUpdatingSource, setIsUpdatingSource] = useState(false);
+  const [showCustomSource, setShowCustomSource] = useState(false);
+  const [customSource, setCustomSource] = useState('');
 
   const fetchData = async () => {
     try {
-      const [vRes, sRes] = await Promise.all([
+      const [vRes, sRes, cRes] = await Promise.all([
         axios.get(`${API_BASE}/api/recent_violations`),
-        axios.get(`${API_BASE}/api/stats`)
+        axios.get(`${API_BASE}/api/stats`),
+        axios.get(`${API_BASE}/api/config`)
       ]);
       setViolations(vRes.data);
       setStats(sRes.data);
+      setCameraConfig(cRes.data);
       setLoading(false);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     }
   };
 
+  const handleSourceChange = async (source) => {
+    if (!source) return;
+    setIsUpdatingSource(true);
+    try {
+      await axios.post(`${API_BASE}/set_camera`, { source });
+      setCameraConfig(prev => ({ ...prev, camera_source: source }));
+      setTimeout(() => { window.location.reload(); }, 1000);
+    } catch (error) {
+      console.error("Failed to update camera source:", error);
+    } finally {
+      setIsUpdatingSource(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 3000); // Poll every 3 seconds
-    return () => clearInterval(interval);
+    let isMounted = true;
+
+    const pollForUpdates = async () => {
+      while (isMounted) {
+        try {
+          const res = await axios.get(`${API_BASE}/api/wait_for_violation`);
+          if (res.data.update && isMounted) {
+            await fetchData();
+          }
+        } catch (error) {
+          console.error("Polling error:", error);
+          if (isMounted) {
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        }
+      }
+    };
+
+    fetchData().then(() => {
+      if (isMounted) pollForUpdates();
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
-    <div className="space-y-8 max-w-[1400px] mx-auto">
-      <header className="flex justify-between items-end">
+    <div className="space-y-4 max-w-[1400px] mx-auto">
+      <header className="flex justify-between items-center">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
-          <p className="text-muted mt-1">Real-time AI monitoring and violation detection</p>
+          <h2 className="text-2xl font-bold tracking-tight">System Overview</h2>
+          <p className="text-muted text-xs">Real-time AI monitoring and violation detection</p>
         </div>
-        <div className="flex gap-4">
-           {/* Quick status badges */}
-           <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              AI CORE ACTIVE
-           </div>
+        <div className="flex gap-3 items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-muted uppercase tracking-widest">Input Source</span>
+            <select
+              value={showCustomSource ? 'custom' : cameraConfig.camera_source}
+              onChange={(e) => {
+                if (e.target.value === 'custom') {
+                  setShowCustomSource(true);
+                } else {
+                  setShowCustomSource(false);
+                  handleSourceChange(e.target.value);
+                }
+              }}
+              disabled={isUpdatingSource}
+              className="bg-zinc-900 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-accent/50 transition-colors cursor-pointer disabled:opacity-50 text-white"
+            >
+              <option value="0" className="bg-zinc-900 text-white">Default Camera (Index 0)</option>
+              <option value="1" className="bg-zinc-900 text-white">Secondary Camera (Index 1)</option>
+              <option value="2" className="bg-zinc-900 text-white">Third Camera (Index 2)</option>
+              <option value="camera/test_video5.mp4" className="bg-zinc-900 text-white">Test Video (Simulation)</option>
+              <option value="custom" className="bg-zinc-900 text-white">+ Custom RTSP/Stream</option>
+            </select>
+          </div>
+
+          {showCustomSource && (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="rtsp://admin:password@ip:port/..."
+                value={customSource}
+                onChange={(e) => setCustomSource(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSourceChange(customSource)}
+                className="bg-zinc-900 border border-white/10 rounded-xl px-4 py-1.5 text-xs font-medium w-64 outline-none focus:border-accent/50 text-white"
+              />
+              <button
+                onClick={() => handleSourceChange(customSource)}
+                disabled={isUpdatingSource || !customSource}
+                className="px-4 py-1.5 bg-accent hover:bg-accent/90 text-white text-[10px] font-bold rounded-xl transition-all disabled:opacity-50"
+              >
+                CONNECT
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            {isUpdatingSource ? 'SWITCHING...' : 'AI ACTIVE'}
+          </div>
         </div>
       </header>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Total Violations" 
-          value={stats.total_violations} 
-          icon={AlertTriangle} 
-          color="danger"
-          trend={12}
-        />
-        <StatCard 
-          title="Active Cameras" 
-          value="1" 
-          icon={Camera} 
-          color="accent"
-        />
-        <StatCard 
-          title="Avg. Response" 
-          value="250ms" 
-          icon={Activity} 
-          color="primary"
-        />
-        <StatCard 
-          title="System Security" 
-          value="High" 
-          icon={Shield} 
-          color="success"
-        />
-      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Main Feed + Stats */}
+        <div className="lg:col-span-9 space-y-4">
+          <VideoFeed src={`${API_BASE}/video_feed`} className="h-[600px] lg:h-[680px]" />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        {/* Main Feed Section - Now Expanded */}
-        <div className="lg:col-span-9 space-y-6">
-          <div className="relative group">
-            <VideoFeed src={`${API_BASE}/video_feed`} className="h-[600px] lg:h-[700px]" />
-          </div>
-          
-          <div className="glass p-8 rounded-[2.5rem]">
-            <h3 className="text-xl font-bold mb-6 flex items-center gap-3 text-white/90">
-              <Activity className="w-6 h-6 text-accent" />
-              Dynamic System Performance
-            </h3>
-            <div className="h-56 flex items-end gap-1.5 px-2">
-               {/* Mock bars for frequency visualization */}
-               {[...Array(45)].map((_, i) => (
-                 <div 
-                   key={i} 
-                   className="flex-1 bg-accent/20 rounded-t-md hover:bg-accent/50 transition-all duration-300 transform origin-bottom hover:scale-y-110"
-                   style={{ height: `${Math.random() * 80 + 20}%` }}
-                 />
-               ))}
-            </div>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            <StatCard
+              title="Total Violations"
+              value={loading ? '—' : stats.total_violations}
+              icon={AlertTriangle}
+              color="danger"
+            />
+            <StatCard
+              title="Active Cameras"
+              value="1"
+              icon={Camera}
+              color="accent"
+            />
           </div>
         </div>
 
-        {/* Live Alerts Section - Refined for Side */}
-        <div className="lg:col-span-3 space-y-6">
-          <div className="glass p-8 rounded-[2.5rem] h-[850px] lg:h-[950px] flex flex-col border border-white/5">
-            <div className="flex justify-between items-center mb-8">
-              <h3 className="text-xl font-bold text-white/90">Live Alerts</h3>
+        {/* Live Alerts */}
+        <div className="lg:col-span-3">
+          <div className="glass p-6 rounded-[2.5rem] h-[680px] flex flex-col border border-white/5">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-white/90">Live Alerts</h3>
               <div className="px-3 py-1 bg-accent/10 border border-accent/20 rounded-full">
-                <span className="text-[10px] font-bold text-accent uppercase tracking-wider">Active</span>
+                <span className="text-[10px] font-bold text-accent uppercase tracking-wider">
+                  {violations.length} recent
+                </span>
               </div>
             </div>
-            
-            <div className="flex-1 overflow-y-auto pr-3 -mr-3 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-              <ViolationList 
-                violations={violations} 
-                onViewImage={setSelectedViolation} 
+            <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              <ViolationList
+                violations={violations}
+                onViewImage={setSelectedViolation}
               />
             </div>
           </div>
@@ -135,18 +188,17 @@ export function Dashboard() {
               onClick={() => setSelectedViolation(null)}
               className="absolute inset-0 bg-black/80 backdrop-blur-md"
             />
-            
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-5xl glass rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
+              className="relative w-full max-w-4xl glass rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10"
             >
               <div className="flex flex-col lg:flex-row h-full">
-                {/* Image Section */}
-                <div className="lg:flex-1 bg-black/40 flex items-center justify-center min-h-[400px]">
-                  <img 
-                    src={`${API_BASE}/${selectedViolation.image_path}`} 
+                {/* Image */}
+                <div className="lg:flex-1 bg-black/40 flex items-center justify-center min-h-[360px]">
+                  <img
+                    src={`${API_BASE}/${selectedViolation.image_path}`}
                     alt="Violation Evidence"
                     className="max-w-full max-h-full object-contain"
                     onError={(e) => {
@@ -154,30 +206,32 @@ export function Dashboard() {
                     }}
                   />
                 </div>
-                
-                {/* Info Section */}
-                <div className="w-full lg:w-80 p-8 flex flex-col border-t lg:border-t-0 lg:border-l border-white/10">
-                  <div className="flex justify-between items-start mb-8">
+
+                {/* Details */}
+                <div className="w-full lg:w-72 p-8 flex flex-col border-t lg:border-t-0 lg:border-l border-white/10">
+                  <div className="flex justify-between items-start mb-6">
                     <div>
                       <h4 className="text-[10px] font-bold text-accent uppercase tracking-widest mb-1">Violation Details</h4>
                       <h3 className="text-xl font-bold capitalize text-white">{selectedViolation.label}</h3>
                     </div>
-                    <button 
+                    <button
                       onClick={() => setSelectedViolation(null)}
                       className="p-2 hover:bg-white/5 rounded-full transition-colors"
                     >
                       <X className="w-5 h-5 text-muted hover:text-white" />
                     </button>
                   </div>
-                  
-                  <div className="space-y-6 flex-1">
+
+                  <div className="space-y-5 flex-1">
                     <div className="flex items-center gap-4 group">
                       <div className="p-3 bg-white/5 rounded-2xl group-hover:bg-accent/10 transition-colors">
                         <Calendar className="w-5 h-5 text-accent" />
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-muted uppercase tracking-tight">Timestamp</p>
-                        <p className="text-sm font-medium">{new Date(selectedViolation.timestamp || selectedViolation.violation_timestamp).toLocaleString()}</p>
+                        <p className="text-sm font-medium">
+                          {new Date(selectedViolation.timestamp || selectedViolation.violation_timestamp).toLocaleString()}
+                        </p>
                       </div>
                     </div>
 
@@ -190,13 +244,6 @@ export function Dashboard() {
                         <p className="text-sm font-medium">{selectedViolation.stop_duration}s</p>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="mt-8 pt-8 border-t border-white/5">
-                    <button className="w-full py-4 bg-accent hover:bg-accent/90 text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20">
-                      <ExternalLink className="w-4 h-4" />
-                      Full Report
-                    </button>
                   </div>
                 </div>
               </div>

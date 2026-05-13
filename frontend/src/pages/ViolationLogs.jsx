@@ -64,13 +64,14 @@ export function ViolationLogs() {
               <tr className="bg-white/[0.02] border-b border-white/5">
                 <th className="px-8 py-5 text-sm font-bold uppercase tracking-wider text-muted">Evidence</th>
                 <th className="px-8 py-5 text-sm font-bold uppercase tracking-wider text-muted">Vehicle Type</th>
+                <th className="px-8 py-5 text-sm font-bold uppercase tracking-wider text-muted">Plate No.</th>
                 <th className="px-8 py-5 text-sm font-bold uppercase tracking-wider text-muted">Timestamp</th>
                 <th className="px-8 py-5 text-sm font-bold uppercase tracking-wider text-muted text-right">Action</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((v, i) => (
-                <tr key={v.id} className="border-b border-white/5 hover:bg-white/[0.01] transition-colors group">
+              {(filtered || []).map((v, i) => (
+                <tr key={v.id || i} className="border-b border-white/5 hover:bg-white/[0.01] transition-colors group">
                   <td className="px-8 py-4">
                     <div className="w-16 h-10 rounded-lg bg-black/40 overflow-hidden border border-white/10">
                       <img 
@@ -87,6 +88,15 @@ export function ViolationLogs() {
                     <span className="px-3 py-1 rounded-lg bg-red-400/10 text-red-400 text-xs font-bold border border-red-400/20 uppercase">
                       {v.label}
                     </span>
+                  </td>
+                  <td className="px-8 py-4">
+                    {v.plate_number ? (
+                      <span className="text-xs font-black tracking-widest text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded border border-emerald-400/20">
+                        {v.plate_number}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-white/20">—</span>
+                    )}
                   </td>
                   <td className="px-8 py-4">
                     <div className="flex flex-col">

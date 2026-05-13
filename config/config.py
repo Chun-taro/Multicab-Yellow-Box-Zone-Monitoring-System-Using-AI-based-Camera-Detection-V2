@@ -18,7 +18,7 @@ class Config:
     CONFIDENCE_THRESHOLD = 0.25  # Higher threshold = more accurate labels, fewer false detections
     # To use the generic pretrained model, simply use its name.
     # Ultralytics will download it automatically on the first run.
-    MODEL_PATH = 'yolov8s.pt'
+    MODEL_PATH = os.path.join(BASE_DIR, 'ai_model', 'models', 'yolov8s.pt')
 
     # Zone settings
     ZONE_CONFIG_PATH = os.path.join(BASE_DIR, 'zone_config.json')
@@ -84,6 +84,6 @@ class Config:
     PORT = int(os.getenv('PORT', 5000))
 
     # Desktop App settings
-    WINDOW_TITLE = 'Multicab Yellow Box Zone Monitoring'
+    WINDOW_TITLE = 'Vehicle Yellow Box Zone Monitoring'
 
 config = Config()

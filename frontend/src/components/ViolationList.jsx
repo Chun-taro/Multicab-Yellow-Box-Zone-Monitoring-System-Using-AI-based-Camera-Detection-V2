@@ -5,7 +5,7 @@ export function ViolationList({ violations, onViewImage }) {
   return (
     <div className="flex flex-col gap-3">
       <AnimatePresence initial={false}>
-        {violations.length > 0 ? (
+        {violations && violations.length > 0 ? (
           violations.slice(0, 10).map((v, index) => (
             <motion.div
               key={v.id || index}
@@ -37,7 +37,18 @@ export function ViolationList({ violations, onViewImage }) {
                       {new Date(v.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
-                  <p className="text-xs text-muted font-medium">Zone {v.zone_id || 'Alpha'}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-muted font-medium">Zone {v.zone_id || 'Alpha'}</p>
+                    {v.plate_number ? (
+                      <span className="text-[10px] font-black tracking-widest text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-400/20">
+                        {v.plate_number}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-medium text-white/20 bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                        Unread
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
               
