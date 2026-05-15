@@ -4,7 +4,7 @@ import {
   AreaChart, Area, PieChart, Pie, Cell 
 } from 'recharts';
 import { StatCard } from '../components/StatCard';
-import { TrendingUp, PieChart as PieIcon, Calendar, Download, FileSpreadsheet, Eye } from 'lucide-react';
+import { TrendingUp, PieChart as PieIcon, Calendar, Download, FileSpreadsheet, Eye, Clock, AlertCircle, Film } from 'lucide-react';
 import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -26,6 +26,7 @@ export function Reports() {
     end: new Date().toISOString().split('T')[0]
   });
   const [isExporting, setIsExporting] = useState(false);
+  const [selectedViolation, setSelectedViolation] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -91,12 +92,14 @@ export function Reports() {
     // Violation List Table
     autoTable(doc, {
       startY: 85,
-      head: [['ID', 'Vehicle', 'Timestamp', 'Stop Duration', 'Status']],
+      head: [['ID', 'Vehicle', 'Plate No.', 'Timestamp', 'Stop Duration', 'Confidence', 'Status']],
       body: data.map(v => [
         v.id,
         v.label,
+        v.plate_number || 'N/A',
         new Date(v.timestamp || v.violation_timestamp).toLocaleString(),
         `${v.stop_duration}s`,
+        v.confidence ? `${(v.confidence * 100).toFixed(1)}%` : '0%',
         v.status || 'recorded'
       ]),
       headStyles: { fillColor: [59, 130, 246] },
@@ -108,24 +111,46 @@ export function Reports() {
   };
 
   const generateCSV = (data) => {
-    const headers = ["ID", "Vehicle", "Timestamp", "Stop Duration", "Status", "Confidence", "Image Path"];
+    const headers = ["ID", "Vehicle", "Plate Number", "Timestamp", "Stop Duration", "Status", "Confidence (%)", "Notes", "Image Path"];
     const rows = data.map(v => [
       v.id,
       v.label,
+      v.plate_number || 'N/A',
       v.timestamp || v.violation_timestamp,
       v.stop_duration,
       v.status,
-      v.confidence,
+      v.confidence ? (v.confidence * 100).toFixed(1) : '0',
+      v.notes || '',
       v.image_path
     ]);
 
-    const content = [headers, ...rows].map(e => e.join(",")).join("\n");
+    // Robust CSV generation with field quoting
+    const content = [headers, ...rows]
+      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
     const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.download = `Violations_${dateRange.start}_to_${dateRange.end}.csv`;
     link.click();
+  };
+
+  const downloadImage = async (path) => {
+    try {
+      const response = await fetch(`${API_BASE}/${path}`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = path.split('/').pop();
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Download failed:", error);
+    }
   };
 
   if (loading || !stats) return (
@@ -240,9 +265,10 @@ export function Reports() {
         )}
       </AnimatePresence>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <StatCard title="Daily Peak" value={`${trendData.reduce((max, p) => p.violations > max ? p.violations : max, 0)} Violations`} icon={TrendingUp} color="primary" />
         <StatCard title="Most Common" value={pieData[0]?.name || "N/A"} icon={PieIcon} color="warning" />
+        <StatCard title="Saved Videos" value={stats.saved_videos} icon={Film} color="accent" />
         <StatCard title="Reporting Period" value="Last 7 Days" icon={Calendar} color="accent" />
       </div>
 
@@ -401,7 +427,10 @@ export function Reports() {
                     </span>
                   </td>
                   <td className="py-6 px-4">
-                    <button className="p-2 hover:bg-accent/10 rounded-xl transition-all group-hover:scale-110">
+                    <button 
+                      onClick={() => setSelectedViolation(v)}
+                      className="p-2 hover:bg-accent/10 rounded-xl transition-all group-hover:scale-110"
+                    >
                       <Eye className="w-5 h-5 text-accent" />
                     </button>
                   </td>
@@ -411,6 +440,83 @@ export function Reports() {
           </table>
         </div>
       </div>
+
+      {/* Violation Detail Modal */}
+      <AnimatePresence>
+        {selectedViolation && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/90 backdrop-blur-sm"
+            onClick={() => setSelectedViolation(null)}
+          >
+             <motion.div 
+               initial={{ scale: 0.9, opacity: 0 }}
+               animate={{ scale: 1, opacity: 1 }}
+               exit={{ scale: 0.9, opacity: 0 }}
+               className="relative max-w-5xl w-full glass rounded-[2.5rem] overflow-hidden border-white/10 shadow-2xl"
+               onClick={(e) => e.stopPropagation()}
+             >
+                <div className="absolute top-6 right-6 z-10">
+                   <button 
+                    onClick={() => setSelectedViolation(null)}
+                    className="w-10 h-10 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white transition-colors"
+                   >
+                     ✕
+                   </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12">
+                   <div className="lg:col-span-8 bg-black">
+                      <img 
+                        src={`${API_BASE}/${selectedViolation.image_path}`} 
+                        className="w-full h-auto object-contain" 
+                        alt="Evidence"
+                      />
+                   </div>
+                   <div className="lg:col-span-4 p-8 space-y-8 self-center">
+                      <div>
+                        <h3 className="text-2xl font-bold mb-2">Violation Details</h3>
+                        <p className="text-muted text-sm italic">Report Evidence Analysis</p>
+                      </div>
+
+                      <div className="space-y-4">
+                         <div className="flex justify-between items-center py-3 border-b border-white/5">
+                            <span className="text-sm text-muted flex items-center gap-2"><Clock className="w-4 h-4" /> Timestamp</span>
+                            <span className="text-sm font-bold">{selectedViolation.timestamp || selectedViolation.violation_timestamp}</span>
+                         </div>
+                         <div className="flex justify-between items-center py-3 border-b border-white/5">
+                            <span className="text-sm text-muted flex items-center gap-2"><AlertCircle className="w-4 h-4" /> Vehicle Type</span>
+                            <span className="text-sm font-bold text-red-400 capitalize">{selectedViolation.label}</span>
+                         </div>
+                         <div className="flex justify-between items-center py-3 border-b border-white/5">
+                            <span className="text-sm text-muted flex items-center gap-2"><Eye className="w-4 h-4" /> Confidence</span>
+                            <span className="text-sm font-bold">{selectedViolation.confidence ? (selectedViolation.confidence * 100).toFixed(1) : '0'}%</span>
+                         </div>
+                         {selectedViolation.plate_number && (
+                            <div className="flex justify-between items-center py-3 border-b border-white/5">
+                                <span className="text-sm text-muted">Plate Number</span>
+                                <span className="text-xs font-black tracking-widest text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded border border-emerald-400/20">
+                                    {selectedViolation.plate_number}
+                                </span>
+                            </div>
+                         )}
+                      </div>
+
+                      <button 
+                        onClick={() => downloadImage(selectedViolation.image_path)}
+                        className="w-full bg-accent hover:bg-accent/90 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all"
+                      >
+                         <Download className="w-5 h-5" />
+                         Download Evidence
+                      </button>
+                   </div>
+                </div>
+             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

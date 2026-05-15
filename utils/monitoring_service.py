@@ -53,6 +53,7 @@ class MonitoringService:
         self.is_stopped_map = {}
         self.violated_ids = set()
         self.vehicle_types = {}
+        self.vehicle_confidences = {}
         self.vehicle_loading_status = {}
         
         self.fps_current = 0
@@ -140,6 +141,15 @@ class MonitoringService:
             self.start()
             
         return self.latest_frame
+
+    def get_realtime_stats(self):
+        """Returns the current monitoring metrics."""
+        return {
+            'person_count': self.person_count,
+            'vehicle_count': self.vehicle_count,
+            'fps_stream': self.fps_current,
+            'fps_ai': self.fps_ai
+        }
 
     def _run_loop(self):
         """The main AI detection and frame processing loop."""
@@ -240,13 +250,9 @@ class MonitoringService:
                 for p in self.current_persons:
                     cv2.rectangle(frame, (p[0], p[1]), (p[2], p[3]), (0, 255, 0), 1)
                 
-                cv2.putText(frame, f"People: {self.person_count} Vehicles: {self.vehicle_count}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                # (Counters removed from frame - now displayed in UI)
                 
-                # Bottom HUD
-                h_fps, w_fps = frame.shape[:2]
-                cv2.rectangle(frame, (5, h_fps - 40), (220, h_fps - 5), (0, 0, 0), -1)
-                cv2.rectangle(frame, (5, h_fps - 40), (220, h_fps - 5), (0, 255, 0), 1)
-                cv2.putText(frame, f"Stream: {self.fps_current} FPS | AI: {self.fps_ai} FPS", (15, h_fps - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                # (HUD removed from frame - now displayed in UI)
                 
                 # JPEG Encoding at high priority
                 res, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
@@ -268,7 +274,7 @@ class MonitoringService:
                     self.camera.close()
                     self.camera = None
 
-    def _save_violation(self, frame, bbox, obj_id, label, elapsed):
+    def _save_violation(self, frame, bbox, obj_id, label, elapsed, confidence=0.0):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         x1, y1, x2, y2 = bbox
         h, w, _ = frame.shape
@@ -307,7 +313,7 @@ class MonitoringService:
                     vehicle_type=label, timestamp=db_timestamp, image_path=db_image_path,
                     image_blob=buffer.tobytes() if ret else None, detection_id=f"{timestamp}_{obj_id}",
                     stop_duration=elapsed, notes=f"Object ID: {obj_id}, Stopped for {elapsed:.1f}s",
-                    plate_number=plate_number
+                    plate_number=plate_number, confidence=confidence
                 )
             
             from utils.events import new_violation_event
@@ -352,6 +358,7 @@ class MonitoringService:
                 class_names = {0: 'person', 2: 'car', 3: 'motorcycle', 5: 'bus', 7: 'truck'}
                 detections_for_tracker = []
                 bbox_to_label = {}
+                bbox_to_conf = {}
                 person_count = 0
                 vehicle_count = 0
                 current_persons = []
@@ -382,6 +389,7 @@ class MonitoringService:
                             rect = (x1, y1, x2, y2)
                             detections_for_tracker.append(rect)
                             bbox_to_label[rect] = label
+                            bbox_to_conf[rect] = conf
                     
                     # 2. Detection logic for persons (Suppressed if overlapping with vehicles)
                     elif label == 'person':
@@ -416,6 +424,15 @@ class MonitoringService:
                 # Tracking Update
                 self.tracked_objects_map = self.tracker.update(detections_for_tracker)
                 self.bbox_to_label.update(bbox_to_label)
+                
+                # Update confidence for tracked objects
+                for obj_id, (centroid, bbox) in self.tracked_objects_map.items():
+                    bbox_tuple = tuple(bbox)
+                    if bbox_tuple in bbox_to_conf:
+                        self.vehicle_confidences[obj_id] = bbox_to_conf[bbox_tuple]
+                    if bbox_tuple in bbox_to_label:
+                         self.vehicle_types[obj_id] = bbox_to_label[bbox_tuple]
+
                 self.person_count = person_count
                 self.vehicle_count = vehicle_count
                 self.current_persons = current_persons
@@ -463,7 +480,12 @@ class MonitoringService:
                             if elapsed >= time_limit and obj_id not in self.violated_ids:
                                 self.violated_ids.add(obj_id)
                                 # Pre-encode frame for violation if camera is available
-                                self._save_violation(frame, bbox, obj_id, self.vehicle_types.get(obj_id, 'car'), elapsed)
+                                self._save_violation(
+                                    frame, bbox, obj_id, 
+                                    self.vehicle_types.get(obj_id, 'car'), 
+                                    elapsed,
+                                    confidence=self.vehicle_confidences.get(obj_id, 0.0)
+                                )
                         else:
                             self.vehicle_timers.pop(obj_id, None)
                     

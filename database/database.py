@@ -229,7 +229,7 @@ class Database:
         """Get violations for a specific date (YYYY-MM-DD)."""
         query = '''
         SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label,
-               v.image_path, v.stop_duration, v.confidence, v.status
+               v.image_path, v.stop_duration, v.confidence, v.status, v.plate_number
         FROM violations v
         LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
         WHERE DATE(v.violation_timestamp) = ?
@@ -246,7 +246,7 @@ class Database:
         
         query = '''
         SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label,
-               v.image_path, v.stop_duration, v.confidence, v.status
+               v.image_path, v.stop_duration, v.confidence, v.status, v.plate_number
         FROM violations v
         LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
         WHERE v.vehicle_type_id = ?
@@ -263,7 +263,7 @@ class Database:
         query = '''
         SELECT v.id, v.violation_timestamp as timestamp, vt.type_name as label,
                v.image_path, v.image_blob, v.stop_duration, v.confidence, 
-               v.status, v.notes
+               v.status, v.notes, v.plate_number
         FROM violations v
         LEFT JOIN vehicle_types vt ON v.vehicle_type_id = vt.id
         WHERE v.id = ?

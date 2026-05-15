@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { StatCard } from '../components/StatCard';
 import { VideoFeed } from '../components/VideoFeed';
 import { ViolationList } from '../components/ViolationList';
-import { AlertTriangle, Camera, X, ExternalLink, Calendar, Activity } from 'lucide-react';
+import { AlertTriangle, Camera, X, ExternalLink, Calendar, Activity, CreditCard, Upload, PlayCircle, Film } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 
@@ -17,17 +17,22 @@ export function Dashboard() {
   const [isUpdatingSource, setIsUpdatingSource] = useState(false);
   const [showCustomSource, setShowCustomSource] = useState(false);
   const [customSource, setCustomSource] = useState('');
+  const [realtimeStats, setRealtimeStats] = useState({});
+  const [testVideos, setTestVideos] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   const fetchData = async () => {
     try {
-      const [vRes, sRes, cRes] = await Promise.all([
+      const [vRes, sRes, cRes, tvRes] = await Promise.all([
         axios.get(`${API_BASE}/api/recent_violations`),
         axios.get(`${API_BASE}/api/stats`),
-        axios.get(`${API_BASE}/api/config`)
+        axios.get(`${API_BASE}/api/config`),
+        axios.get(`${API_BASE}/api/test_videos`)
       ]);
       setViolations(vRes.data);
       setStats(sRes.data);
       setCameraConfig(cRes.data);
+      setTestVideos(tvRes.data);
       setLoading(false);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -45,6 +50,33 @@ export function Dashboard() {
       console.error("Failed to update camera source:", error);
     } finally {
       setIsUpdatingSource(false);
+    }
+  };
+
+  const handleVideoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('video', file);
+
+    setIsUploading(true);
+    try {
+      const res = await axios.post(`${API_BASE}/api/upload_video`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data.success) {
+        // Refresh video list
+        const tvRes = await axios.get(`${API_BASE}/api/test_videos`);
+        setTestVideos(tvRes.data);
+        // Automatically switch to the new video
+        handleSourceChange(`camera/${res.data.filename}`);
+      }
+    } catch (error) {
+      console.error("Upload failed:", error);
+      alert("Failed to upload video.");
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -71,8 +103,20 @@ export function Dashboard() {
       if (isMounted) pollForUpdates();
     });
 
+    // Real-time stats polling (every 2 seconds)
+    const statsInterval = setInterval(async () => {
+      if (!isMounted) return;
+      try {
+        const res = await axios.get(`${API_BASE}/api/realtime_stats`);
+        setRealtimeStats(res.data);
+      } catch (error) {
+        console.error("Error fetching realtime stats:", error);
+      }
+    }, 2000);
+
     return () => {
       isMounted = false;
+      clearInterval(statsInterval);
     };
   }, []);
 
@@ -102,9 +146,33 @@ export function Dashboard() {
               <option value="0" className="bg-zinc-900 text-white">Default Camera (Index 0)</option>
               <option value="1" className="bg-zinc-900 text-white">Secondary Camera (Index 1)</option>
               <option value="2" className="bg-zinc-900 text-white">Third Camera (Index 2)</option>
-              <option value="camera/test_video5.mp4" className="bg-zinc-900 text-white">Test Video (Simulation)</option>
+              
+              {testVideos.map(video => (
+                <option key={video} value={`camera/${video}`} className="bg-zinc-900 text-white">
+                  Test: {video}
+                </option>
+              ))}
+              
               <option value="custom" className="bg-zinc-900 text-white">+ Custom RTSP/Stream</option>
             </select>
+          </div>
+
+          <div className="relative">
+            <input
+              type="file"
+              id="video-upload"
+              className="hidden"
+              accept="video/*"
+              onChange={handleVideoUpload}
+              disabled={isUploading}
+            />
+            <label
+              htmlFor="video-upload"
+              className={`flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-white/10 rounded-xl text-xs font-bold cursor-pointer hover:border-accent/50 transition-colors ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <Upload className={`w-3.5 h-3.5 ${isUploading ? 'animate-bounce' : ''}`} />
+              {isUploading ? 'UPLOADING...' : 'UPLOAD TEST VIDEO'}
+            </label>
           </div>
 
           {showCustomSource && (
@@ -137,15 +205,25 @@ export function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Main Feed + Stats */}
         <div className="lg:col-span-9 space-y-4">
-          <VideoFeed src={`${API_BASE}/video_feed`} className="h-[600px] lg:h-[680px]" />
+          <VideoFeed 
+            src={`${API_BASE}/video_feed`} 
+            className="h-[600px] lg:h-[680px]" 
+            stats={realtimeStats}
+          />
 
           {/* Stats Grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <StatCard
               title="Total Violations"
               value={loading ? '—' : stats.total_violations}
               icon={AlertTriangle}
               color="danger"
+            />
+            <StatCard
+              title="Saved Videos"
+              value={loading ? '—' : testVideos.length}
+              icon={Film}
+              color="primary"
             />
             <StatCard
               title="Active Cameras"
@@ -242,6 +320,18 @@ export function Dashboard() {
                       <div>
                         <p className="text-[10px] font-bold text-muted uppercase tracking-tight">Stop Duration</p>
                         <p className="text-sm font-medium">{selectedViolation.stop_duration}s</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-4 group">
+                      <div className="p-3 bg-white/5 rounded-2xl group-hover:bg-amber-500/10 transition-colors">
+                        <CreditCard className="w-5 h-5 text-amber-500" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-muted uppercase tracking-tight">Plate Number</p>
+                        <p className="text-sm font-bold tracking-wider text-white">
+                          {selectedViolation.plate_number || "NOT DETECTED"}
+                        </p>
                       </div>
                     </div>
                   </div>

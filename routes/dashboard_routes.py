@@ -97,6 +97,11 @@ def api_recent_violations():
     # Use itertools.islice for safe slicing that satisfies strict type checkers
     return jsonify(list(itertools.islice(all_violations, 10)))
 
+@dashboard_bp.route('/api/realtime_stats')
+def api_realtime_stats():
+    """Get real-time monitoring counts and FPS from the singleton service."""
+    return jsonify(monitoring_service.get_realtime_stats())
+
 @dashboard_bp.route('/api/stats')
 def api_stats():
     """Analytics and Reports Data"""
@@ -114,10 +119,17 @@ def api_stats():
     
     total_violations = sum(by_type_data.values())
     
+    # Count saved videos in camera/ directory
+    camera_dir = os.path.join(os.getcwd(), 'camera')
+    saved_videos_count = 0
+    if os.path.exists(camera_dir):
+        saved_videos_count = len([f for f in os.listdir(camera_dir) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))])
+    
     return jsonify({
         'by_type': by_type_data,
         'trend': trend_data,
-        'total_violations': total_violations
+        'total_violations': total_violations,
+        'saved_videos': saved_videos_count
     })
 
 @dashboard_bp.route('/api/config')

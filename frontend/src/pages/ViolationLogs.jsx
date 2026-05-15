@@ -32,6 +32,22 @@ export function ViolationLogs() {
     v.timestamp?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const downloadImage = async (path) => {
+    try {
+      const response = await fetch(`${API_BASE}/${path}`);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = path.split('/').pop();
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error("Download failed:", error);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-[1400px] mx-auto pb-12">
       <header className="flex justify-between items-end">
@@ -177,11 +193,22 @@ export function ViolationLogs() {
                          </div>
                          <div className="flex justify-between items-center py-3 border-b border-white/5">
                             <span className="text-sm text-muted flex items-center gap-2"><Eye className="w-4 h-4" /> Confidence</span>
-                            <span className="text-sm font-bold">98.4%</span>
+                            <span className="text-sm font-bold">{selectedViolation.confidence ? (selectedViolation.confidence * 100).toFixed(1) : '0'}%</span>
                          </div>
+                         {selectedViolation.plate_number && (
+                           <div className="flex justify-between items-center py-3 border-b border-white/5">
+                              <span className="text-sm text-muted flex items-center gap-2">Plate Number</span>
+                              <span className="text-xs font-black tracking-widest text-emerald-400 bg-emerald-400/10 px-3 py-1 rounded border border-emerald-400/20">
+                                  {selectedViolation.plate_number}
+                              </span>
+                           </div>
+                         )}
                       </div>
 
-                      <button className="w-full bg-accent hover:bg-accent/90 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all">
+                      <button 
+                        onClick={() => downloadImage(selectedViolation.image_path)}
+                        className="w-full bg-accent hover:bg-accent/90 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-3 transition-all"
+                      >
                          <Download className="w-5 h-5" />
                          Download Evidence
                       </button>
