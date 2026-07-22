@@ -45,3 +45,12 @@ def save_zone():
 def get_zone():
     from config.config import config
     return jsonify(config.YELLOW_BOX_ZONE)
+
+@api_bp.route('/hardware/scan', methods=['GET'])
+def get_hardware_scan():
+    from utils.hardware_scanner import scan_hardware
+    try:
+        report = scan_hardware()
+        return jsonify(report)
+    except Exception as e:
+        return jsonify({'error': f'Failed to perform hardware scan: {str(e)}'}), 500
