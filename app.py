@@ -21,8 +21,36 @@ app.register_blueprint(api_bp, url_prefix='/api')
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react(path):
-    """Serve static files if they exist."""
+    """Serve React frontend static files or fallback to index.html for SPA routing."""
     static_dir = os.path.join(os.getcwd(), app.static_folder)
+    index_file = os.path.join(static_dir, 'index.html')
+    
+    if not os.path.exists(index_file):
+        return """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Frontend Build Required</title>
+            <style>
+                body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                .card { background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155; max-width: 500px; text-align: center; }
+                h2 { color: #38bdf8; margin-top: 0; }
+                code { background: #0f172a; padding: 4px 8px; border-radius: 4px; color: #f43f5e; font-family: monospace; }
+                pre { background: #0f172a; padding: 1rem; border-radius: 6px; text-align: left; color: #a5f3fc; overflow-x: auto; }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <h2>React Frontend Not Built</h2>
+                <p>The production frontend bundle was not found in <code>frontend/dist</code>.</p>
+                <p><strong>To fix this on a new clone, run:</strong></p>
+                <pre>cd frontend&#10;npm install&#10;npm run build</pre>
+                <p>Or run Vite dev server in parallel: <code>npm run dev</code></p>
+            </div>
+        </body>
+        </html>
+        """, 404
+
     if path != "" and os.path.exists(os.path.join(static_dir, path)):
         return send_from_directory(static_dir, path)
     return send_from_directory(static_dir, 'index.html')
@@ -31,12 +59,16 @@ def serve_react(path):
 def handle_404(e):
     """Fallback for any 404 to support React Router (SPA)."""
     static_dir = os.path.join(os.getcwd(), app.static_folder)
-    return send_from_directory(static_dir, 'index.html')
+    index_file = os.path.join(static_dir, 'index.html')
+    if os.path.exists(index_file):
+        return send_from_directory(static_dir, 'index.html')
+    return serve_react('')
 
 @app.route('/violations/<path:filename>')
 def serve_violations(filename):
     """Serve violation images from the static/violations directory."""
     return send_from_directory(os.path.join('static', 'violations'), filename)
+
 
 
 @app.route('/set_camera', methods=['POST'])
