@@ -167,7 +167,7 @@ export function ZoneSetup() {
             <div className="relative aspect-video bg-black flex items-center justify-center">
               <img 
                 ref={videoRef}
-                src={`${API_BASE}/video_feed?t=${timestamp}`}
+                src={`${API_BASE}/video_feed`}
                 alt="Setup Feed"
                 className="w-full h-full object-contain"
                 onLoad={resizeCanvas}

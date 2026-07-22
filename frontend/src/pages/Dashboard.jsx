@@ -82,15 +82,19 @@ export function Dashboard() {
 
   useEffect(() => {
     let isMounted = true;
+    const abortController = new AbortController();
 
     const pollForUpdates = async () => {
       while (isMounted) {
         try {
-          const res = await axios.get(`${API_BASE}/api/wait_for_violation`);
+          const res = await axios.get(`${API_BASE}/api/wait_for_violation`, {
+            signal: abortController.signal
+          });
           if (res.data.update && isMounted) {
             await fetchData();
           }
         } catch (error) {
+          if (axios.isCancel(error) || !isMounted) break;
           console.error("Polling error:", error);
           if (isMounted) {
             await new Promise(resolve => setTimeout(resolve, 3000));
@@ -107,18 +111,24 @@ export function Dashboard() {
     const statsInterval = setInterval(async () => {
       if (!isMounted) return;
       try {
-        const res = await axios.get(`${API_BASE}/api/realtime_stats`);
+        const res = await axios.get(`${API_BASE}/api/realtime_stats`, {
+          signal: abortController.signal
+        });
         setRealtimeStats(res.data);
       } catch (error) {
-        console.error("Error fetching realtime stats:", error);
+        if (!axios.isCancel(error)) {
+          console.error("Error fetching realtime stats:", error);
+        }
       }
     }, 2000);
 
     return () => {
       isMounted = false;
+      abortController.abort();
       clearInterval(statsInterval);
     };
   }, []);
+
 
   return (
     <div className="space-y-4 max-w-[1400px] mx-auto">

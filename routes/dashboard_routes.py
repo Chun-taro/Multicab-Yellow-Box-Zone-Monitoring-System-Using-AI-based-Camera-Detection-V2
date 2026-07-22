@@ -148,9 +148,9 @@ def wait_for_violation():
     """
     This is a long-polling endpoint. It holds the client's request open
     until a new violation is detected or a timeout occurs.
+    Using a 5s timeout prevents lingering thread exhaustion when switching pages.
     """
-    # Wait for the event to be set, with a timeout (e.g., 30 seconds)
-    event_was_set = new_violation_event.wait(timeout=30)
+    event_was_set = new_violation_event.wait(timeout=5)
     
     if event_was_set:
         new_violation_event.clear()  # Reset the event for the next violation
@@ -185,20 +185,24 @@ from utils.monitoring_service import monitoring_service
 def generate_frames():
     """
     Generator that provides processed frames from the shared MonitoringService.
-    This ensures all connected clients see the same AI-processed feed, 
-    reducing CPU load significantly.
+    Catches client disconnects cleanly to prevent thread accumulation when changing pages.
     """
-    while True:
-        frame_bytes = monitoring_service.get_frame()
-        if frame_bytes:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-        else:
-            # If no frame available (e.g. camera starting), provide a small delay
-            time.sleep(0.1)
+    try:
+        while True:
+            frame_bytes = monitoring_service.get_frame()
+            if frame_bytes:
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+                time.sleep(0.033)  # Cap stream output to ~30 FPS per client
+            else:
+                time.sleep(0.1)
+    except (GeneratorExit, ConnectionResetError, BrokenPipeError, OSError):
+        # Client navigated away or closed the video feed connection
+        pass
 
 
 @dashboard_bp.route('/video_feed')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
